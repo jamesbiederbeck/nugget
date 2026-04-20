@@ -1,6 +1,10 @@
 # Nugget
 
-A CLI chat interface for a locally-hosted Gemma 4 model.
+A CLI chat interface for a locally-hosted Gemma 4 model. 
+
+Why Nugget? Because it's a small, tasty way to interact with your local LLM. It's designed to be simple and intuitive, with a focus on tool use and "thinking" (chain-of-thought reasoning). It's not trying to be a full-featured chat client or knowledge management system -- just a quick and easy way to ask questions, run commands, and take notes with your local model.
+
+Also "gem" was already coined by the Gemma team, and "nugget" felt like a fun extension of that.
 
 By default, we use a model from https://huggingface.co/collections/TrevorJS/gemma-4-uncensored. It's running locally, so why should it tell you no? Gemma 4 models in that collection have been [ablierterated](https://huggingface.co/blog/mlabonne/abliteration) to remove the "refusal" activation from their vocabulary, making them more cooperative and less likely to refuse requests. You can use any model you like, but these are a good starting point. The `-E4B` variant is a smaller, faster model with good reasoning abilities. See https://github.com/matt-c1/llama-3-quant-comparison as an example of the trade offs. You generally want a large quantization for more output quality, or a smaller one for more speed, but the selection is generally good, and the nuance of quantization levels is deep and outside the scope of this project.
 
