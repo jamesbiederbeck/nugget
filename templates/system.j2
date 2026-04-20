@@ -1,0 +1,12 @@
+{%- if thinking_effort == 1 -%}
+{%- set think_prefix = "<|think|>Think briefly. " -%}
+{%- elif thinking_effort == 2 -%}
+{%- set think_prefix = "<|think|>" -%}
+{%- elif thinking_effort == 3 -%}
+{%- set think_prefix = "<|think|>Think deeply and reason step by step. " -%}
+{%- else -%}
+{%- set think_prefix = "" -%}
+{%- endif -%}
+<|turn>system
+{{ think_prefix }}{{ system_prompt }}{% for tool in tools %}
+{{ format_tool_declaration(tool) }}{% endfor %}<turn|>
