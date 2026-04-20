@@ -2,6 +2,9 @@
 
 A CLI chat interface for a locally-hosted Gemma 4 model. 
 
+<img src="nugget.png" width="256" />
+
+
 Why Nugget? Because it's a small, tasty way to interact with your local LLM. It's designed to be simple and intuitive, with a focus on tool use and "thinking" (chain-of-thought reasoning). It's not trying to be a full-featured chat client or knowledge management system -- just a quick and easy way to ask questions, run commands, and take notes with your local model.
 
 Also "gem" was already coined by the Gemma team, and "nugget" felt like a fun extension of that.
