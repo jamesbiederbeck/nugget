@@ -1,7 +1,13 @@
 [project]
-name = "gemma"
+name = "nugget"
 version = "0.1.0"
-description = "Add your description here"
+description = "CLI chat interface for a locally-hosted Gemma 4 model"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "requests",
+    "jinja2",
+]
+
+[project.scripts]
+nugget = "gemma.__main__:main"
