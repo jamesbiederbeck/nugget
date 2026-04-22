@@ -3,18 +3,20 @@ import os
 from pathlib import Path
 from typing import Any
 
-CONFIG_DIR = Path.home() / ".config" / "gemma"
+CONFIG_DIR = Path.home() / ".config" / "nugget"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS: dict[str, Any] = {
+    "backend": "textgen",
     "api_url": "http://127.0.0.1:5000",
     "model": "gemma-4-E4B-it-uncensored-Q4_K_M.gguf",
     "temperature": 0.7,
     "max_tokens": 2048,
     "top_p": 0.95,
     "top_k": 20,
-    "sessions_dir": str(Path.home() / ".local" / "share" / "gemma" / "sessions"),
+    "sessions_dir": str(Path.home() / ".local" / "share" / "nugget" / "sessions"),
     "system_prompt": "You are a helpful assistant.",
+    "append_datetime": True,
     "thinking_effort": 0,
     "show_thinking": False,
     "show_tool_calls": True,

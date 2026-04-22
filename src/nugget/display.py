@@ -66,3 +66,16 @@ def print_error(msg: str) -> None:
 
 def print_dim(msg: str) -> None:
     print(f"{DIM}{msg}{RESET}")
+
+
+def print_session_header(session_id: str) -> None:
+    print(_c(DIM, f"session {session_id}"))
+
+
+def print_session_list(sessions: list[dict]) -> None:
+    for s in sessions:
+        ts = _c(DIM, s["updated_at"][:16])
+        sid = _c(CYAN, s["id"])
+        tns = _c(DIM, f"[{s['turns']} turns]")
+        prv = s["preview"]
+        print(f"  {sid}  {ts}  {tns}  {prv}")

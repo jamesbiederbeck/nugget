@@ -1,45 +1,53 @@
 # Nugget
 
-A CLI chat interface for a locally-hosted Gemma 4 model. 
+A CLI chat interface for locally-hosted models.
 
 <img src="nugget.png" width="256" />
 
-
-Why Nugget? Because it's a small, tasty way to interact with your local LLM. It's designed to be simple and intuitive, with a focus on tool use and "thinking" (chain-of-thought reasoning). It's not trying to be a full-featured chat client or knowledge management system -- just a quick and easy way to ask questions, run commands, and take notes with your local model.
+Why Nugget? Because it's a small, tasty way to interact with your local LLM. It's designed to be simple and intuitive, with a focus on tool use and "thinking" (chain-of-thought reasoning). It's not trying to be a full-featured chat client or knowledge management system — just a quick and easy way to ask questions, run commands, and take notes with your local model.
 
 Also "gem" was already coined by the Gemma team, and "nugget" felt like a fun extension of that.
 
-By default, we use a model from https://huggingface.co/collections/TrevorJS/gemma-4-uncensored. It's running locally, so why should it tell you no? Gemma 4 models in that collection have been [ablierterated](https://huggingface.co/blog/mlabonne/abliteration) to remove the "refusal" activation from their vocabulary, making them more cooperative and less likely to refuse requests. You can use any model you like, but these are a good starting point. The `-E4B` variant is a smaller, faster model with good reasoning abilities. See https://github.com/matt-c1/llama-3-quant-comparison as an example of the trade offs. You generally want a large quantization for more output quality, or a smaller one for more speed, but the selection is generally good, and the nuance of quantization levels is deep and outside the scope of this project.
+By default, we use a model from https://huggingface.co/collections/TrevorJS/gemma-4-uncensored. It's running locally, so why should it tell you no? Gemma 4 models in that collection have been [abliterated](https://huggingface.co/blog/mlabonne/abliteration) to remove the "refusal" activation from their vocabulary, making them more cooperative and less likely to refuse requests. You can use any model you like, but these are a good starting point. The `-E4B` variant is a smaller, faster model with good reasoning abilities.
 
 ## Requirements
 
 - Python 3.11+
-- A running textgen server (default: `http://127.0.0.1:5000`)
+- A running text-generation-webui server (default: `http://127.0.0.1:5000`)
+
+## Installation
+
+```bash
+pip install -e .
+```
 
 ## Usage
 
 ```bash
 # Interactive session
-python -m gemma
+nugget
 
 # One-shot
-python -m gemma "what is the capital of france"
+nugget "what is the capital of france"
 
 # One-shot, no interactive follow-up
-python -m gemma -n "summarize this" < file.txt
+nugget -n "summarize this" < file.txt
 
-# Resume a session
-python -m gemma --session my-session
+# Resume a session by ID
+nugget --session abc12345
+
+# Resume the most recent session
+nugget --session last
 
 # List saved sessions
-python -m gemma --list-sessions
+nugget --list-sessions
 
 # Enable thinking
-python -m gemma --thinking "explain backpropagation"
-python -m gemma --thinking-effort 3 "hard problem"
+nugget --thinking "explain backpropagation"
+nugget --thinking-effort 3 "hard problem"
 
 # Verbose (show thinking, tool calls, system prompt)
-python -m gemma -v "what time is it"
+nugget -v "what time is it"
 ```
 
 ## Tools
@@ -47,30 +55,49 @@ python -m gemma -v "what time is it"
 | Tool | Description |
 |------|-------------|
 | `calculator` | Evaluate math expressions |
-| `datetime` | Get current date/time |
+| `get_datetime` | Get current date/time in any timezone |
 | `shell` | Run shell commands (asks for approval) |
 | `filebrowser` | Read and list files |
-| `memory` | Persist notes across sessions |
+| `memory` | Persist notes across sessions; supports pinning to system prompt |
 
 ```bash
 # Filter tools
-python -m gemma --include-tools calculator,datetime
-python -m gemma --exclude-tools shell
-python -m gemma --list-tools
+nugget --include-tools calculator,get_datetime
+nugget --exclude-tools shell
+nugget --list-tools
+```
+
+### Pinned memories
+
+The `memory` tool supports a `pin` field. Pinned memories are automatically injected into the system prompt at the start of every session, so the model always has them in context:
+
+```
+store key="my name" value="Victor" pin=true
 ```
 
 ## Configuration
 
-Config lives at `~/.config/gemma/config.json`. Created automatically on first run.
+Config lives at `~/.config/nugget/config.json`. Created automatically on first run.
 
 | Key | Default |
 |-----|---------|
-| `api_url` | `http://127.0.0.1:5000` |
-| `model` | `gemma-4-E4B-it-uncensored-Q4_K_M.gguf` |
+| `backend` | `"textgen"` |
+| `api_url` | `"http://127.0.0.1:5000"` |
+| `model` | `"gemma-4-E4B-it-uncensored-Q4_K_M.gguf"` |
 | `temperature` | `0.7` |
 | `max_tokens` | `2048` |
 | `thinking_effort` | `0` (0=off, 1=low, 2=medium, 3=high) |
-| `sessions_dir` | `~/.local/share/gemma/sessions` |
+| `sessions_dir` | `~/.local/share/nugget/sessions` |
+
+## Backends
+
+The `backend` config key (or `--backend` flag) selects which model server to talk to. Currently available:
+
+| Backend | Description |
+|---------|-------------|
+| `textgen` | text-generation-webui `/v1/completions` with Gemma 4 prompt format (default) |
+
+New backends live in `src/nugget/backends/`. Each one implements the `Backend` protocol: a `run()` method that takes messages, tool schemas, and a tool executor, and returns `(text, thinking, tool_exchanges)`.
 
 ## Docker
 
@@ -86,7 +113,7 @@ docker run --network host nugget -n "what is 2+2"
 
 ## Approval
 
-Tool calls are governed by approval rules. By default, `shell` prompts before running; everything else is auto-allowed. Rules can be customized in `config.json`:
+Tool calls are governed by approval rules. By default, `shell` prompts before running and `memory` delete operations ask for confirmation; everything else is auto-allowed. Rules can be customized in `config.json`:
 
 ```json
 "approval": {
@@ -98,9 +125,27 @@ Tool calls are governed by approval rules. By default, `shell` prompts before ru
 }
 ```
 
+## Project layout
+
+```
+src/nugget/
+  backends/
+    __init__.py       # Backend protocol + make_backend() factory
+    textgen.py        # text-generation-webui + Gemma 4 prompt format
+  tools/              # Auto-discovered tool modules
+  templates/
+    system.j2         # System prompt template
+  config.py
+  session.py
+  display.py
+  approval.py
+```
+
 ## Roadmap
 - [x] Basic chat interface
 - [x] Tool calling framework
 - [x] Thinking (chain-of-thought)
-- [ ] Session management --partial; logs are saved, but sessions can't be resumed yet
+- [x] Session management (save, resume by ID, resume last)
+- [x] Swappable backends
+- [x] Pinned memories in system prompt
 - [ ] Semantic search over past conversations and memory

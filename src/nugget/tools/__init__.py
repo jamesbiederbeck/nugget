@@ -13,6 +13,7 @@ from typing import Callable
 
 
 _registry: dict[str, tuple[dict, Callable]] = {}
+_gates: dict[str, str | Callable | None] = {}
 
 
 def _load_all() -> None:
@@ -24,6 +25,7 @@ def _load_all() -> None:
         if hasattr(mod, "SCHEMA") and hasattr(mod, "execute"):
             name = mod.SCHEMA["function"]["name"]
             _registry[name] = (mod.SCHEMA, mod.execute)
+            _gates[name] = getattr(mod, "APPROVAL", None)
 
 
 def all_tools() -> dict[str, tuple[dict, Callable]]:
@@ -49,6 +51,11 @@ def execute(name: str, args: dict) -> object:
         return _registry[name][1](args)
     except Exception as e:
         return {"error": str(e)}
+
+
+def gate(name: str) -> str | Callable | None:
+    _load_all()
+    return _gates.get(name)
 
 
 def list_names() -> list[str]:

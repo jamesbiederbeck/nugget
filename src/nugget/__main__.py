@@ -1,23 +1,25 @@
 """
-python -m gemma [OPTIONS] [MESSAGE]
+python -m nugget [OPTIONS] [MESSAGE]
 
-Interactive or one-shot invocation of the local Gemma 4 model.
+Interactive or one-shot chat via a configurable local model backend.
 """
 
 import argparse
 import sys
 
 from .config import Config
-from .client import Client, CompletionError
+from .backends import make_backend, BackendError
 from .session import Session
 from . import tools as tool_registry
 from . import display
+from . import approval as approval_mod
+from .tools.memory import get_pinned as _get_pinned
 
 
 def make_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="python -m gemma",
-        description="Chat with local Gemma 4 via raw completions API",
+        prog="nugget",
+        description="Chat with a locally-hosted model",
     )
 
     p.add_argument("message", nargs="?", help="Initial message (omit for interactive)")
@@ -60,6 +62,7 @@ def make_parser() -> argparse.ArgumentParser:
                    help="Print each completion request payload to stdout before sending")
 
     # Config overrides
+    p.add_argument("--backend", metavar="NAME", help="Backend to use (e.g. textgen)")
     p.add_argument("--system", metavar="PROMPT", help="Override system prompt for this run")
     p.add_argument("--max-tokens", type=int, metavar="N")
     p.add_argument("--temperature", type=float, metavar="F")
@@ -88,8 +91,8 @@ def main() -> None:
         sessions = Session.list_sessions(cfg.sessions_path())
         if not sessions:
             print("No sessions found.")
-        for s in sessions:
-            print(f"  {s['id']}  {s['updated_at'][:16]}  [{s['turns']} turns]  {s['preview']}")
+        else:
+            display.print_session_list(sessions)
         return
 
     # ── List tools ───────────────────────────────────────────────────────────
@@ -101,14 +104,14 @@ def main() -> None:
 
     # ── Build config overrides ───────────────────────────────────────────────
     overrides = {}
+    if args.backend:
+        overrides["backend"] = args.backend
     if args.system:
         overrides["system_prompt"] = args.system
     if args.max_tokens:
         overrides["max_tokens"] = args.max_tokens
     if args.temperature is not None:
         overrides["temperature"] = args.temperature
-
-    # --verbose sets all display flags; individual flags override it
     if args.debug:
         overrides["debug"] = True
 
@@ -131,17 +134,35 @@ def main() -> None:
     active_schemas = tool_registry.schemas(include=include, exclude=exclude)
 
     # ── Session ──────────────────────────────────────────────────────────────
-    session = (
-        Session.load(args.session, cfg.sessions_path())
-        if args.session
-        else Session.new(cfg.sessions_path())
-    )
+    if args.session == "last":
+        recent = Session.list_sessions(cfg.sessions_path())
+        session_id = recent[0]["id"] if recent else None
+        session = Session.load(session_id, cfg.sessions_path()) if session_id else Session.new(cfg.sessions_path())
+    elif args.session:
+        session = Session.load(args.session, cfg.sessions_path())
+    else:
+        session = Session.new(cfg.sessions_path())
 
-    client = Client(cfg)
+    backend = make_backend(cfg)
+
+    if sys.stdin.isatty():
+        display.print_session_header(session.id)
+
+    def _system_prompt() -> str:
+        from datetime import datetime, timezone
+        parts = [cfg.system_prompt]
+        if cfg.append_datetime:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            parts.append(f"Current date and time: {now}")
+        pinned = _get_pinned()
+        if pinned:
+            pins = "\n".join(f"- {m['key']}: {m['value']}" for m in pinned)
+            parts.append(f"## Pinned memories\n{pins}")
+        return "\n\n".join(parts)
 
     if cfg.show_system_prompt:
-        from .prompt import build_prompt
-        preview = build_prompt([], active_schemas, cfg.system_prompt, thinking_effort)
+        from .backends.textgen import build_prompt
+        preview = build_prompt([], active_schemas, _system_prompt(), thinking_effort)
         display.print_system_prompt(preview)
 
     def on_thinking(text: str) -> None:
@@ -156,20 +177,32 @@ def main() -> None:
         if cfg.show_tool_responses:
             display.print_tool_response(name, result)
 
+    def on_tool_denied(name: str, reason: str) -> None:
+        display.print_error(f"tool '{name}' not executed: {reason}")
+
+    def tool_executor(name: str, args: dict) -> object:
+        approved, reason = approval_mod.check(
+            name, args, tool_registry.gate(name), cfg.approval_config()
+        )
+        if not approved:
+            return {"_denied": True, "reason": reason}
+        return tool_registry.execute(name, args)
+
     def run_turn(user_input: str) -> None:
         session.add_user(user_input)
         try:
-            text, thinking, tool_exchanges = client.run(
-                messages=session.messages,  # includes current user turn
+            text, thinking, tool_exchanges = backend.run(
+                messages=session.messages,
                 tool_schemas=active_schemas,
-                tool_executor=lambda n, a: tool_registry.execute(n, a),
-                system_prompt=cfg.system_prompt,
+                tool_executor=tool_executor,
+                system_prompt=_system_prompt(),
                 thinking_effort=thinking_effort,
                 on_thinking=on_thinking,
                 on_tool_call=on_tool_call,
                 on_tool_response=on_tool_response,
+                on_tool_denied=on_tool_denied,
             )
-        except CompletionError as e:
+        except BackendError as e:
             display.print_error(str(e))
             return
         except KeyboardInterrupt:
@@ -189,7 +222,6 @@ def main() -> None:
     if args.non_interactive and not args.message:
         parser.error("--non-interactive requires a MESSAGE argument")
 
-    # Interactive loop
     while True:
         user_input = display.print_user_prompt()
         if not user_input:

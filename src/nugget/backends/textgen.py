@@ -1,0 +1,307 @@
+"""
+text-generation-webui backend using /v1/completions with Gemma 4 prompt format.
+"""
+
+import json
+import re
+from pathlib import Path
+from typing import Any, Callable
+
+import jinja2
+import requests
+
+from . import BackendError
+
+# ── Jinja2 template env ──────────────────────────────────────────────────────
+
+_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+_jinja_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(str(_TEMPLATES_DIR)),
+    undefined=jinja2.StrictUndefined,
+    keep_trailing_newline=True,
+)
+
+# ── Gemma 4 value serialiser ─────────────────────────────────────────────────
+
+_STR_DELIM = '<|"|>'
+
+
+def _gval(v: Any) -> str:
+    """Recursively serialise a Python value into Gemma 4 structured-data format."""
+    if isinstance(v, dict):
+        pairs = ",".join(f"{k}:{_gval(val)}" for k, val in v.items())
+        return "{" + pairs + "}"
+    if isinstance(v, list):
+        return "[" + ",".join(_gval(i) for i in v) + "]"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if v is None:
+        return "null"
+    if isinstance(v, str):
+        return f"{_STR_DELIM}{v}{_STR_DELIM}"
+    return str(v)
+
+
+# ── Tool formatting ──────────────────────────────────────────────────────────
+
+def format_tool_declaration(schema: dict) -> str:
+    fn = schema["function"]
+    body: dict[str, Any] = {}
+    if "description" in fn:
+        body["description"] = fn["description"]
+    if "parameters" in fn:
+        body["parameters"] = fn["parameters"]
+    return f"<|tool>declaration:{fn['name']}{_gval(body)}<tool|>"
+
+
+def format_tool_call_token(name: str, args: dict) -> str:
+    return f"<|tool_call>call:{name}{_gval(args)}<tool_call|>"
+
+
+def format_tool_response_token(name: str, result: Any) -> str:
+    if isinstance(result, dict):
+        body = result
+    else:
+        body = {"result": result}
+    return f"<|tool_response>response:{name}{_gval(body)}<tool_response|>"
+
+
+# ── Parsing model output ─────────────────────────────────────────────────────
+
+_THINKING_RE = re.compile(r"<\|channel\>thought\n(.*?)\n?<channel\|>", re.DOTALL)
+_TOOL_CALL_RE = re.compile(r"<\|tool_call\>call:(\w+)(\{.*\})<tool_call\|>", re.DOTALL)
+_STR_DELIM_LEN = len(_STR_DELIM)
+
+
+def _parse_gval(s: str) -> Any:
+    """Recursive descent parser for Gemma 4 structured values."""
+    _, val = _parse_gval_at(s.strip(), 0)
+    return val
+
+
+def _parse_gval_at(s: str, pos: int) -> tuple[int, Any]:
+    while pos < len(s) and s[pos].isspace():
+        pos += 1
+    if pos >= len(s):
+        return pos, None
+
+    if s[pos:pos + _STR_DELIM_LEN] == _STR_DELIM:
+        start = pos + _STR_DELIM_LEN
+        end = s.find(_STR_DELIM, start)
+        if end == -1:
+            return len(s), s[start:]
+        return end + _STR_DELIM_LEN, s[start:end]
+
+    if s[pos] == "{":
+        pos += 1
+        result: dict[str, Any] = {}
+        while pos < len(s):
+            while pos < len(s) and s[pos].isspace():
+                pos += 1
+            if pos < len(s) and s[pos] == "}":
+                return pos + 1, result
+            key_start = pos
+            while pos < len(s) and s[pos] not in (":", "}", ","):
+                pos += 1
+            key = s[key_start:pos].strip()
+            if not key:
+                break
+            if pos < len(s) and s[pos] == ":":
+                pos += 1
+            pos, val = _parse_gval_at(s, pos)
+            result[key] = val
+            while pos < len(s) and s[pos].isspace():
+                pos += 1
+            if pos < len(s) and s[pos] == ",":
+                pos += 1
+        return pos, result
+
+    if s[pos] == "[":
+        pos += 1
+        items: list[Any] = []
+        while pos < len(s):
+            while pos < len(s) and s[pos].isspace():
+                pos += 1
+            if pos < len(s) and s[pos] == "]":
+                return pos + 1, items
+            pos, val = _parse_gval_at(s, pos)
+            items.append(val)
+            while pos < len(s) and s[pos].isspace():
+                pos += 1
+            if pos < len(s) and s[pos] == ",":
+                pos += 1
+        return pos, items
+
+    start = pos
+    while pos < len(s) and s[pos] not in (",", "}", "]"):
+        pos += 1
+    token = s[start:pos].strip()
+    if token == "true":
+        return pos, True
+    if token == "false":
+        return pos, False
+    if token == "null":
+        return pos, None
+    try:
+        return pos, int(token)
+    except ValueError:
+        pass
+    try:
+        return pos, float(token)
+    except ValueError:
+        pass
+    return pos, token
+
+
+def parse_tool_call(text: str) -> tuple[str, dict] | None:
+    m = _TOOL_CALL_RE.search(text)
+    if not m:
+        return None
+    name = m.group(1)
+    args = _parse_gval(m.group(2))
+    if not isinstance(args, dict):
+        args = {"_raw": m.group(2)}
+    return name, args
+
+
+def parse_thinking(text: str) -> tuple[str | None, str]:
+    m = _THINKING_RE.search(text)
+    if not m:
+        return None, text.strip()
+    thinking = m.group(1).strip()
+    response = text[m.end():].strip()
+    if "<|tool_call>" in response:
+        response = ""
+    return thinking, response
+
+
+# ── Prompt assembly ──────────────────────────────────────────────────────────
+
+def _render_assistant_turn(msg: dict) -> str:
+    parts = []
+    if msg.get("thinking"):
+        parts.append(f"<|channel>thought\n{msg['thinking']}\n<channel|>")
+    for tc in msg.get("tool_calls", []):
+        parts.append(format_tool_call_token(tc["name"], tc["args"]))
+        parts.append("<|tool_response>")
+        parts.append(format_tool_response_token(tc["name"], tc["result"]))
+    if msg.get("content"):
+        parts.append(msg["content"])
+    return "".join(parts)
+
+
+def build_prompt(
+    messages: list[dict],
+    tool_schemas: list[dict],
+    system_prompt: str,
+    thinking_effort: int,
+) -> str:
+    tmpl = _jinja_env.get_template("system.j2")
+    system_content = tmpl.render(
+        system_prompt=system_prompt,
+        tools=tool_schemas,
+        thinking_effort=thinking_effort,
+        format_tool_declaration=format_tool_declaration,
+    )
+    parts = [system_content]
+    for msg in messages:
+        if msg["role"] == "user":
+            parts.append(f"<|turn>user\n{msg['content']}<turn|>")
+        elif msg["role"] == "assistant":
+            inner = _render_assistant_turn(msg)
+            parts.append(f"<|turn>model\n{inner}<turn|>")
+    parts.append("<|turn>model\n")
+    return "\n".join(parts)
+
+
+# ── HTTP client + tool loop ──────────────────────────────────────────────────
+
+class TextgenBackend:
+    def __init__(self, config):
+        self.cfg = config
+        self._session = requests.Session()
+        self._session.headers["Content-Type"] = "application/json"
+
+    def _post(self, prompt: str, stop: list[str]) -> requests.Response:
+        url = f"{self.cfg.api_url}/v1/completions"
+        payload = {
+            "model": self.cfg.model,
+            "temperature": self.cfg.temperature,
+            "max_tokens": self.cfg.max_tokens,
+            "top_p": self.cfg.top_p,
+            "top_k": self.cfg.top_k,
+            "prompt": prompt,
+            "stop": stop,
+        }
+        if self.cfg.debug:
+            print(json.dumps({"url": url, "payload": payload}, indent=2))
+        resp = self._session.post(url, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp
+
+    def _complete(self, prompt: str, stop: list[str]) -> tuple[str, str]:
+        resp = self._post(prompt, stop)
+        data = resp.json()
+        choice = data["choices"][0]
+        return choice["text"], choice["finish_reason"]
+
+    def run(
+        self,
+        messages: list[dict],
+        tool_schemas: list[dict],
+        tool_executor: Callable[[str, dict], object],
+        system_prompt: str,
+        thinking_effort: int = 0,
+        on_thinking: Callable[[str], None] | None = None,
+        on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_response: Callable[[str, object], None] | None = None,
+        on_tool_denied: Callable[[str, str], None] | None = None,
+        **kwargs,
+    ) -> tuple[str, str | None, list[dict]]:
+        has_tools = bool(tool_schemas)
+        stop = ["<turn|>", "<|tool_response>"] if has_tools else ["<turn|>"]
+
+        prompt = build_prompt(messages, tool_schemas, system_prompt, thinking_effort)
+        accumulated = ""
+        tool_exchanges: list[dict] = []
+
+        for _ in range(16):
+            try:
+                text, finish_reason = self._complete(prompt, stop)
+            except requests.RequestException as e:
+                raise BackendError(str(e)) from e
+
+            accumulated += text
+
+            if finish_reason == "length":
+                break
+
+            tc = parse_tool_call(accumulated)
+            if tc is None:
+                break
+
+            name, args = tc
+            if on_tool_call:
+                on_tool_call(name, args)
+
+            result = tool_executor(name, args)
+
+            if isinstance(result, dict) and result.get("_denied"):
+                reason = result.get("reason", "denied")
+                if on_tool_denied:
+                    on_tool_denied(name, reason)
+                result = {"error": reason}
+            elif on_tool_response:
+                on_tool_response(name, result)
+
+            tool_exchanges.append({"name": name, "args": args, "result": result})
+
+            response_token = format_tool_response_token(name, result)
+            prompt = prompt + accumulated + "<|tool_response>" + response_token
+            accumulated = ""
+
+        thinking_out, final_text = parse_thinking(accumulated)
+        if thinking_out and on_thinking:
+            on_thinking(thinking_out)
+
+        return final_text, thinking_out, tool_exchanges

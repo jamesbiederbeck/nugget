@@ -8,7 +8,7 @@ Resolution order (first match wins):
 
 Actions: "allow", "deny", "ask"
 
-Config shape (in ~/.config/gemma/config.json):
+Config shape (in ~/.config/nugget/config.json):
   "approval": {
     "default": "allow",
     "rules": [
@@ -47,19 +47,16 @@ def _resolve_action(
     tool_gate: str | Callable | None,
     approval_config: dict,
 ) -> str:
-    # 1. Config rules — first match wins
     for rule in approval_config.get("rules", []):
         if _match_rule(rule, tool_name, args):
             action = rule.get("action", "allow")
             return action if action in VALID_ACTIONS else "allow"
 
-    # 2. Tool's own gate
     if tool_gate is not None:
         action = tool_gate(args) if callable(tool_gate) else tool_gate
         if action in VALID_ACTIONS:
             return action
 
-    # 3. Config default
     default = approval_config.get("default", "allow")
     return default if default in VALID_ACTIONS else "allow"
 

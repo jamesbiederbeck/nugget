@@ -1,7 +1,7 @@
 [project]
 name = "nugget"
 version = "0.1.0"
-description = "CLI chat interface for a locally-hosted Gemma 4 model"
+description = "CLI chat interface for a locally-hosted model"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -9,5 +9,15 @@ dependencies = [
     "jinja2",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-mock"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
 [project.scripts]
-nugget = "gemma.__main__:main"
+nugget = "nugget.__main__:main"

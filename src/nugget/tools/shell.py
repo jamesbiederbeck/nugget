@@ -1,5 +1,7 @@
 import subprocess
 
+APPROVAL = "ask"
+
 SCHEMA = {
     "type": "function",
     "function": {

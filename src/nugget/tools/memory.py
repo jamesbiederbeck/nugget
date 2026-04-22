@@ -1,5 +1,5 @@
 """
-Persistent memory backed by SQLite at ~/.local/share/gemma/memory.db.
+Persistent memory backed by SQLite at ~/.local/share/nugget/memory.db.
 Operations: store, recall, search, list, delete
 """
 
@@ -7,7 +7,11 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-_DB_PATH = Path.home() / ".local" / "share" / "gemma" / "memory.db"
+_DB_PATH = Path.home() / ".local" / "share" / "nugget" / "memory.db"
+
+
+def APPROVAL(args: dict) -> str:
+    return "ask" if args.get("operation") == "delete" else "allow"
 
 SCHEMA = {
     "type": "function",
@@ -41,6 +45,10 @@ SCHEMA = {
                     "type": "string",
                     "description": "Substring to search for (required for search)",
                 },
+                "pin": {
+                    "type": "boolean",
+                    "description": "If true, mark this memory as pinned so it always appears in the system prompt. If false, unpin it. Omit to leave pin status unchanged.",
+                },
             },
             "required": ["operation"],
         },
@@ -53,13 +61,31 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS memory (
-            key   TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            pinned     INTEGER NOT NULL DEFAULT 0,
             updated_at TEXT NOT NULL
         )
     """)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(memory)")}
+    if "pinned" not in cols:
+        conn.execute("ALTER TABLE memory ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     return conn
+
+
+def get_pinned() -> list[dict]:
+    """Return all pinned memories; used to inject into the system prompt."""
+    if not _DB_PATH.exists():
+        return []
+    try:
+        with _connect() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM memory WHERE pinned=1 ORDER BY key"
+            ).fetchall()
+        return [{"key": r[0], "value": r[1]} for r in rows]
+    except Exception:
+        return []
 
 
 def execute(args: dict) -> dict:
@@ -73,13 +99,25 @@ def execute(args: dict) -> dict:
         if value is None:
             return {"error": "store requires a value"}
         now = datetime.now(timezone.utc).isoformat()
+        pin_arg = args.get("pin")
         with _connect() as conn:
-            conn.execute(
-                "INSERT INTO memory(key, value, updated_at) VALUES(?,?,?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-                (key, str(value), now),
-            )
-        return {"stored": key}
+            if pin_arg is not None:
+                pin_val = 1 if pin_arg else 0
+                conn.execute(
+                    "INSERT INTO memory(key, value, pinned, updated_at) VALUES(?,?,?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, pinned=excluded.pinned, updated_at=excluded.updated_at",
+                    (key, str(value), pin_val, now),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO memory(key, value, pinned, updated_at) VALUES(?,?,0,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    (key, str(value), now),
+                )
+        result = {"stored": key}
+        if pin_arg is not None:
+            result["pinned"] = bool(pin_arg)
+        return result
 
     if op == "recall":
         key = args.get("key", "").strip()
@@ -87,13 +125,12 @@ def execute(args: dict) -> dict:
             return {"error": "recall requires a key"}
         with _connect() as conn:
             row = conn.execute(
-                "SELECT value, updated_at FROM memory WHERE key=?", (key,)
+                "SELECT value, updated_at, pinned FROM memory WHERE key=?", (key,)
             ).fetchone()
             if row is None:
-                # Fuzzy fallback: search key and value
                 pattern = f"%{key}%"
                 rows = conn.execute(
-                    "SELECT key, value, updated_at FROM memory "
+                    "SELECT key, value, updated_at, pinned FROM memory "
                     "WHERE key LIKE ? OR value LIKE ? ORDER BY updated_at DESC",
                     (pattern, pattern),
                 ).fetchall()
@@ -101,9 +138,9 @@ def execute(args: dict) -> dict:
                     return {"error": f"no memory found for key: {key!r}"}
                 return {
                     "note": "exact key not found, returning fuzzy matches",
-                    "results": [{"key": r[0], "value": r[1], "updated_at": r[2]} for r in rows],
+                    "results": [{"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])} for r in rows],
                 }
-        return {"key": key, "value": row[0], "updated_at": row[1]}
+        return {"key": key, "value": row[0], "updated_at": row[1], "pinned": bool(row[2])}
 
     if op == "search":
         query = args.get("query", "").strip()
@@ -112,21 +149,21 @@ def execute(args: dict) -> dict:
         pattern = f"%{query}%"
         with _connect() as conn:
             rows = conn.execute(
-                "SELECT key, value, updated_at FROM memory "
+                "SELECT key, value, updated_at, pinned FROM memory "
                 "WHERE key LIKE ? OR value LIKE ? ORDER BY updated_at DESC",
                 (pattern, pattern),
             ).fetchall()
         return {
             "query": query,
-            "results": [{"key": r[0], "value": r[1], "updated_at": r[2]} for r in rows],
+            "results": [{"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])} for r in rows],
         }
 
     if op == "list":
         with _connect() as conn:
             rows = conn.execute(
-                "SELECT key, updated_at FROM memory ORDER BY updated_at DESC"
+                "SELECT key, updated_at, pinned FROM memory ORDER BY pinned DESC, updated_at DESC"
             ).fetchall()
-        return {"keys": [{"key": r[0], "updated_at": r[1]} for r in rows]}
+        return {"keys": [{"key": r[0], "updated_at": r[1], "pinned": bool(r[2])} for r in rows]}
 
     if op == "delete":
         key = args.get("key", "").strip()
