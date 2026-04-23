@@ -21,8 +21,5 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: uv pip install -e ".[dev]" --python ${{ matrix.python-version }} --system
-
       - name: Run tests
-        run: uv run --python ${{ matrix.python-version }} pytest
+        run: uv run --python ${{ matrix.python-version }} --extra dev pytest
