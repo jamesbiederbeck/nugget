@@ -19,6 +19,9 @@ dev = ["pytest>=8.0", "pytest-mock"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+nugget = ["templates/*.j2"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
