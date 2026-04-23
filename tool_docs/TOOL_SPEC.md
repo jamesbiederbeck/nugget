@@ -57,13 +57,106 @@ Optional. Pass an API key via the `Authorization` header:
 Authorization: Bearer <your-api-key>
 ```
 
-### Key endpoint used
+### Key Upstream Endpoints Used by Nugget
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/v1/completions` | Generate text (Gemma 4 prompt format) |
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `POST` | `/v1/completions` | Text completion (used by the `textgen` backend) |
+| `POST` | `/v1/chat/completions` | Chat completion (OpenAI-compatible) |
+| `POST` | `/v1/internal/model/load` | Load a model at runtime |
+| `GET`  | `/v1/internal/model/list` | List available models |
+| `GET`  | `/v1/models` | List currently loaded models |
+| `POST` | `/v1/embeddings` | Sentence embeddings (requires `sentence-transformers`) |
+| `POST` | `/v1/images/generations` | Image generation (requires an image model) |
 
-Nugget formats the full conversation — system prompt, messages, tool declarations, and tool call results — into a single prompt string using the Gemma 4 template, then sends it to `/v1/completions`.
+### Completions — Input Shape
+
+```json
+{
+  "prompt": "string",
+  "max_tokens": 2048,
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "top_k": 20,
+  "stream": false
+}
+```
+
+### Chat Completions — Input Shape
+
+```json
+{
+  "messages": [
+    { "role": "system",    "content": "string" },
+    { "role": "user",      "content": "string" },
+    { "role": "assistant", "content": "string" }
+  ],
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "top_k": 20,
+  "max_tokens": 2048,
+  "stream": false,
+  "tools": [ /* optional — see Tool Calling below */ ]
+}
+```
+
+Multimodal content parts are supported:
+
+```json
+{
+  "role": "user",
+  "content": [
+    { "type": "text", "text": "Describe this image." },
+    { "type": "image_url", "image_url": { "url": "https://..." } }
+  ]
+}
+```
+
+### Chat Completions — Output Shape
+
+```json
+{
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "created": 1764791227,
+  "model": "...",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "string",
+        "tool_calls": [
+          {
+            "id": "call_...",
+            "type": "function",
+            "function": {
+              "name": "tool_name",
+              "arguments": "{\"key\": \"value\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "stop | tool_calls | length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  }
+}
+```
+
+### SSE Streaming
+
+Add `"stream": true` to any request. Each chunk is a `data:` line in [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) format:
+
+```
+data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}
+
+data: [DONE]
+```
 
 ---
 
@@ -72,337 +165,664 @@ Nugget formats the full conversation — system prompt, messages, tool declarati
 Start with:
 
 ```bash
-nugget-server [--host HOST] [--port PORT]
-# default: http://127.0.0.1:8000
+nugget-server [--host 127.0.0.1] [--port 8000]
+# or via extras:
+uv pip install -e ".[web]"
 ```
 
-All endpoints return JSON. The chat endpoint returns **Server-Sent Events (SSE)**.
+Base URL: `http://127.0.0.1:8000`
 
-### Sessions
+### Session Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/sessions` | List all saved sessions |
-| `POST` | `/api/sessions` | Create a new session |
-| `GET` | `/api/sessions/{id}` | Get session details and message history |
-| `DELETE` | `/api/sessions/{id}` | Delete a session |
+| Method   | Endpoint                            | Description                      |
+|----------|-------------------------------------|----------------------------------|
+| `GET`    | `/api/sessions`                     | List all saved sessions          |
+| `POST`   | `/api/sessions`                     | Create a new session             |
+| `GET`    | `/api/sessions/{session_id}`        | Get session details + history    |
+| `DELETE` | `/api/sessions/{session_id}`        | Delete a session                 |
+| `POST`   | `/api/sessions/{session_id}/chat`   | Send a message (SSE stream)      |
 
-### Chat
+### `GET /api/sessions` — Output Shape
+
+```json
+[
+  {
+    "id": "abc12345",
+    "created_at": "2026-04-23T08:00:00Z",
+    "updated_at": "2026-04-23T08:01:00Z"
+  }
+]
+```
+
+### `POST /api/sessions` — Output Shape
+
+```json
+{ "id": "abc12345" }
+```
+
+### `GET /api/sessions/{session_id}` — Output Shape
+
+```json
+{
+  "id": "abc12345",
+  "created_at": "2026-04-23T08:00:00Z",
+  "updated_at": "2026-04-23T08:01:00Z",
+  "messages": [
+    { "role": "user",      "content": "Hello!" },
+    { "role": "assistant", "content": "Hi there!" }
+  ]
+}
+```
+
+### `POST /api/sessions/{session_id}/chat` — Input Shape
+
+```json
+{ "message": "string" }
+```
+
+### `POST /api/sessions/{session_id}/chat` — SSE Output Events
+
+Each line is `data: <JSON>\n\n`. Event types:
+
+| `type`          | Additional fields                              | Description                              |
+|-----------------|------------------------------------------------|------------------------------------------|
+| `token`         | `text: string`                                 | A streamed text token from the model     |
+| `thinking`      | `text: string`                                 | Internal chain-of-thought text           |
+| `tool_call`     | `name: string`, `args: object`                 | Model is requesting a tool call          |
+| `tool_result`   | `name: string`, `result: object`               | Tool executed successfully               |
+| `tool_denied`   | `name: string`, `reason: string`               | Tool call blocked by approval policy     |
+| `done`          | `text: string`                                 | Final assembled response text            |
+| `error`         | `message: string`                              | Fatal error during generation            |
+
+**Example stream:**
 
 ```
-POST /api/sessions/{id}/chat
-Content-Type: application/json
+data: {"type": "thinking", "text": "The user wants to know..."}
 
-{"message": "your message here"}
+data: {"type": "tool_call", "name": "get_datetime", "args": {"timezone": "UTC"}}
+
+data: {"type": "tool_result", "name": "get_datetime", "result": {"datetime": "2026-04-23T08:00:00+00:00", ...}}
+
+data: {"type": "token", "text": "The current time is "}
+
+data: {"type": "token", "text": "08:00 UTC."}
+
+data: {"type": "done", "text": "The current time is 08:00 UTC."}
 ```
-
-Returns an SSE stream. Each event is a JSON object on a `data:` line:
-
-| `type` | Fields | Description |
-|--------|--------|-------------|
-| `token` | `text` | Streamed text token |
-| `thinking` | `text` | Chain-of-thought token (when thinking is enabled) |
-| `tool_call` | `name`, `args` | Model is calling a tool |
-| `tool_result` | `name`, `result` | Tool execution result |
-| `tool_denied` | `name`, `reason` | Tool call was blocked by approval policy |
-| `done` | `text` | Final complete response text |
-| `error` | `message` | An error occurred |
 
 ---
 
 ## Built-in Tools
 
-All tools live in `src/nugget/tools/` and are **auto-discovered** at startup. Each module exposes a `SCHEMA` dict (OpenAI function-tool format) and an `execute(args)` function.
-
-### calculator
-
-Evaluates safe arithmetic expressions using Python's AST parser. No `eval()` is used.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `expression` | string | ✓ | Arithmetic expression, e.g. `"2 + 2"` or `"(10 * 3) / 4"` |
-
-**Returns:** `{"result": <number>, "expression": <string>}` or `{"error": ..., "expression": ...}`
-
-**Approval:** `allow` (auto-approved)
+All tools are auto-discovered from `src/nugget/tools/`. Each module exposes a `SCHEMA` dict (OpenAI function-calling format) and an `execute(args: dict) -> dict` function. An optional `APPROVAL` attribute (string or callable) governs the default approval gate.
 
 ---
 
-### get_datetime
+### `calculator`
 
-Returns the current date and time in any IANA timezone.
+Evaluate safe arithmetic expressions without `eval`.
 
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `timezone` | string | — | IANA timezone string, e.g. `"UTC"`, `"America/New_York"`. Defaults to `"UTC"`. |
-
-**Returns:**
+**JSON Schema:**
 
 ```json
 {
-  "datetime": "2025-01-15T14:30:00+00:00",
-  "date": "2025-01-15",
-  "time": "14:30:00",
-  "timezone": "UTC",
-  "weekday": "Wednesday"
+  "type": "function",
+  "function": {
+    "name": "calculator",
+    "description": "Evaluate a safe arithmetic expression",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "expression": {
+          "type": "string",
+          "description": "Arithmetic expression to evaluate, e.g. '2 + 2' or '(10 * 3) / 4'"
+        }
+      },
+      "required": ["expression"]
+    }
+  }
 }
 ```
 
-**Approval:** `allow` (auto-approved)
+**Input:**
+
+```json
+{ "expression": "(10 * 3) / 4" }
+```
+
+**Output (success):**
+
+```json
+{ "result": 7.5, "expression": "(10 * 3) / 4" }
+```
+
+**Output (error):**
+
+```json
+{ "error": "unsupported node: Call", "expression": "os.system('ls')" }
+```
+
+**Supported operators:** `+`, `-`, `*`, `/`, `**`, `%`, `//`, unary `-`/`+`  
+**Approval gate:** `allow` (no confirmation required)
 
 ---
 
-### shell
+### `get_datetime`
 
-Runs an arbitrary shell command and returns its output. Use with caution.
+Return the current date and time in any IANA timezone.
 
-**Parameters:**
+**JSON Schema:**
 
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `command` | string | ✓ | Shell command to execute |
-| `timeout` | number | — | Timeout in seconds (default: `10`) |
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "get_datetime",
+    "description": "Get the current date and time, optionally in a specific timezone",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone string, e.g. 'UTC', 'America/New_York', 'Europe/London'. Defaults to UTC."
+        }
+      },
+      "required": []
+    }
+  }
+}
+```
 
-**Returns:** `{"stdout": ..., "stderr": ..., "returncode": ...}` or `{"error": ...}`
+**Input:**
 
-**Approval:** `ask` (prompts user before executing)
+```json
+{ "timezone": "America/New_York" }
+```
+
+**Output (success):**
+
+```json
+{
+  "datetime": "2026-04-23T04:00:00-04:00",
+  "date": "2026-04-23",
+  "time": "04:00:00",
+  "timezone": "America/New_York",
+  "weekday": "Thursday"
+}
+```
+
+**Output (error):**
+
+```json
+{ "error": "unknown timezone: 'Fake/Zone'" }
+```
+
+**Approval gate:** `allow`
 
 ---
 
-### filebrowser
+### `shell`
 
-Browses the local filesystem. Supports three operations.
+Run an arbitrary shell command and return its output. **High-risk tool.**
 
-**Parameters:**
+**JSON Schema:**
 
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `operation` | string | ✓ | One of: `"cwd"`, `"ls"`, `"cat"` |
-| `path` | string | — | Directory path for `ls`, file path for `cat`. Omit for `cwd`. |
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "shell",
+    "description": "Run a shell command and return its output. Use with caution.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Shell command to execute"
+        },
+        "timeout": {
+          "type": "number",
+          "description": "Timeout in seconds (default 10)"
+        }
+      },
+      "required": ["command"]
+    }
+  }
+}
+```
 
-**Operations:**
+**Input:**
 
-- `cwd` — Returns `{"cwd": "/current/working/directory"}`
-- `ls` — Returns `{"path": ..., "entries": [{"name", "type", "size"}, ...]}`
-- `cat` — Returns `{"path": ..., "content": ..., "size": ...}`
+```json
+{ "command": "ls -la /tmp", "timeout": 5 }
+```
 
-**Approval:** `allow` (auto-approved)
+**Output (success):**
+
+```json
+{
+  "stdout": "total 0\ndrwxrwxrwt ...",
+  "stderr": "",
+  "returncode": 0
+}
+```
+
+**Output (timeout):**
+
+```json
+{ "error": "command timed out after 5s" }
+```
+
+**Output (denied):**
+
+```json
+{ "_denied": true, "reason": "tool 'shell' requires approval (non-interactive: denied)" }
+```
+
+**Approval gate:** `ask` (always prompts in CLI; converts to `allow` in web mode where there is no TTY)
 
 ---
 
-### memory
+### `filebrowser`
 
-Persistent key-value memory backed by SQLite at `~/.local/share/nugget/memory.db`. Memories survive across sessions. Supports `memory://` URIs to link related entries.
+Browse and read the local filesystem.
 
-**Parameters:**
+**JSON Schema:**
 
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `operation` | string | ✓ | One of: `"store"`, `"recall"`, `"search"`, `"list"`, `"delete"` |
-| `key` | string | — | Memory key (required for `store`, `recall`, `delete`) |
-| `value` | string | — | Value to store (required for `store`). May include `memory://key` URIs. |
-| `query` | string | — | Substring to search for (required for `search`) |
-| `pin` | boolean | — | If `true`, inject this memory into every system prompt |
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "filebrowser",
+    "description": "Browse the local filesystem. Operations: 'cwd' returns the current working directory; 'ls' lists files in a directory; 'cat' reads the contents of a file.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "description": "One of: 'cwd', 'ls', 'cat'"
+        },
+        "path": {
+          "type": "string",
+          "description": "Path for 'ls' (directory) or 'cat' (file). Omit for 'cwd'."
+        }
+      },
+      "required": ["operation"]
+    }
+  }
+}
+```
 
-**Operations summary:**
+**`cwd` — Input / Output:**
 
-| Operation | Description |
-|-----------|-------------|
-| `store` | Save or update a key-value pair |
-| `recall` | Retrieve a value by key (falls back to fuzzy match) |
-| `search` | Find memories whose key or value contains the query |
-| `list` | Return all stored keys, sorted by pinned-first then recency |
-| `delete` | Remove a key |
+```json
+// Input
+{ "operation": "cwd" }
 
-**Approval:** `allow` for most operations; `ask` for `delete`
+// Output
+{ "cwd": "/home/user/projects" }
+```
+
+**`ls` — Input / Output:**
+
+```json
+// Input
+{ "operation": "ls", "path": "/home/user" }
+
+// Output
+{
+  "path": "/home/user",
+  "entries": [
+    { "name": "Documents", "type": "dir",  "size": 4096 },
+    { "name": "notes.txt", "type": "file", "size": 1234 }
+  ]
+}
+```
+
+**`cat` — Input / Output:**
+
+```json
+// Input
+{ "operation": "cat", "path": "/home/user/notes.txt" }
+
+// Output
+{ "path": "/home/user/notes.txt", "content": "Hello world\n", "size": 12 }
+```
+
+**Approval gate:** `allow`
+
+---
+
+### `memory`
+
+Persistent key-value store backed by SQLite at `~/.local/share/nugget/memory.db`. Supports pinning memories into the system prompt.
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "memory",
+    "description": "Persistent key-value memory across conversations. Operations: 'store', 'recall', 'search', 'list', 'delete'.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "description": "One of: 'store', 'recall', 'search', 'list', 'delete'"
+        },
+        "key": {
+          "type": "string",
+          "description": "Memory key (required for store, recall, delete)"
+        },
+        "value": {
+          "type": "string",
+          "description": "Value to store (required for store). May include memory:// URIs to link related keys."
+        },
+        "query": {
+          "type": "string",
+          "description": "Substring to search for (required for search)"
+        },
+        "pin": {
+          "type": "boolean",
+          "description": "If true, mark this memory as pinned into the system prompt. If false, unpin. Omit to leave unchanged."
+        }
+      },
+      "required": ["operation"]
+    }
+  }
+}
+```
+
+**Operations and examples:**
+
+| Operation | Required fields | Optional fields |
+|-----------|----------------|-----------------|
+| `store`   | `key`, `value`  | `pin`           |
+| `recall`  | `key`           | —               |
+| `search`  | `query`         | —               |
+| `list`    | —               | —               |
+| `delete`  | `key`           | —               |
+
+**`store` output:**
+
+```json
+{ "stored": "my-name", "pinned": true }
+```
+
+**`recall` output (found):**
+
+```json
+{
+  "key": "my-name",
+  "value": "Victor",
+  "updated_at": "2026-04-23T08:00:00+00:00",
+  "pinned": true,
+  "links": []
+}
+```
+
+**`search` output:**
+
+```json
+{
+  "query": "Victor",
+  "results": [
+    { "key": "my-name", "value": "Victor", "updated_at": "...", "pinned": true }
+  ]
+}
+```
+
+**`list` output:**
+
+```json
+{
+  "keys": [
+    { "key": "my-name", "updated_at": "...", "pinned": true },
+    { "key": "project",  "updated_at": "...", "pinned": false }
+  ]
+}
+```
+
+**`delete` output:**
+
+```json
+{ "deleted": "my-name" }
+```
+
+**Memory links:** Values may contain `memory://key` URIs. When recalling, linked memories are auto-fetched and returned in a `links` array.
+
+**Approval gate:** Dynamic — `ask` when `operation == "delete"`, otherwise `allow`.
 
 ---
 
 ## Token Limits
 
-Token limits are controlled by the `max_tokens` configuration key (default: `2048`). This is passed directly to the upstream model server as the `max_tokens` parameter in the `/v1/completions` request.
+Token limits are governed by the loaded model and the `ctx_size` passed to the backend server.
 
-When `thinking_effort` is enabled, nugget allocates a portion of the token budget to chain-of-thought reasoning:
+| Setting           | Default  | Notes                                                          |
+|-------------------|----------|----------------------------------------------------------------|
+| `max_tokens`      | `2048`   | Configurable in `~/.config/nugget/config.json` or `--max-tokens` |
+| Context window    | Model-dependent | Gemma 4 E4B: up to **128K** tokens (set `ctx_size` when loading) |
+| Thinking tokens   | Varies   | `--thinking-effort` `1`/`2`/`3` adds chain-of-thought overhead; LOW effort ~20% fewer thinking tokens |
 
-| `thinking_effort` | Budget tokens |
-|-------------------|---------------|
-| `0` (off) | — |
-| `1` (low) | 1024 |
-| `2` (medium) | 4096 |
-| `3` (high) | 8192 |
+**Embedding model token limits** (when using `/v1/embeddings`):
+
+| Model                     | Dimensions | Max Input Tokens |
+|---------------------------|------------|-----------------|
+| `all-mpnet-base-v2`       | 768        | 384             |
+| `all-MiniLM-L6-v2`        | 384        | 256             |
+
+> ⚠️ You cannot mix embeddings from different models, even if their dimensions match.
 
 ---
 
 ## Approval Rules
 
-Tool calls are governed by a two-level approval system.
+Tool calls go through a three-step resolution. **First match wins.**
 
-**Resolution order (first match wins):**
-
-1. Config rules (ordered list in `config.json`)
-2. Tool module's own `APPROVAL` attribute
-3. Config `default`
+```
+1. Config rules   (ordered list in config.json)
+2. Tool's APPROVAL gate (static string or callable)
+3. Config default
+```
 
 **Actions:**
 
-| Action | Behaviour |
-|--------|-----------|
-| `allow` | Execute immediately |
-| `deny` | Block the tool call |
-| `ask` | Prompt the user interactively; deny automatically in non-TTY contexts |
+| Action  | Behavior                                                                 |
+|---------|--------------------------------------------------------------------------|
+| `allow` | Execute immediately, no prompt                                           |
+| `deny`  | Block unconditionally                                                    |
+| `ask`   | Prompt the user (CLI only). In non-interactive / web mode: auto-deny     |
 
-**Default config:**
+**Config shape** (`~/.config/nugget/config.json`):
 
 ```json
-"approval": {
-  "default": "allow",
-  "rules": [
-    { "tool": "shell",  "action": "ask" },
-    { "tool": "memory", "args": { "operation": "delete" }, "action": "ask" }
-  ]
+{
+  "approval": {
+    "default": "allow",
+    "rules": [
+      { "tool": "shell",  "action": "ask" },
+      { "tool": "memory", "args": { "operation": "delete" }, "action": "ask" },
+      { "tool": "filebrowser", "args": { "operation": "cat" }, "action": "allow" }
+    ]
+  }
 }
 ```
 
 **Rule fields:**
 
-| Field | Description |
-|-------|-------------|
-| `tool` | Tool name to match (or `"*"` for all tools) |
-| `args` | Optional map of argument key-value pairs that must all match |
-| `action` | `"allow"`, `"deny"`, or `"ask"` |
+| Field    | Type   | Description                                                          |
+|----------|--------|----------------------------------------------------------------------|
+| `tool`   | string | Tool name to match. Use `"*"` or omit for wildcard.                  |
+| `args`   | object | Key-value pairs that must all match the call's args (subset match).  |
+| `action` | string | `"allow"`, `"deny"`, or `"ask"`                                      |
 
-**Tool-level gate:** A tool module may set `APPROVAL = "ask"` (string) or define `APPROVAL` as a callable that receives the `args` dict and returns an action string.
+**Tool gate in a module:**
+
+```python
+# Static gate
+APPROVAL = "ask"    # always ask
+APPROVAL = "deny"   # always deny
+
+# Dynamic gate (callable)
+def APPROVAL(args: dict) -> str:
+    return "ask" if args.get("operation") == "delete" else "allow"
+```
 
 ---
 
 ## Configuration Schema
 
-Config file: `~/.config/nugget/config.json` (created automatically on first run).
+Full JSON Schema for `~/.config/nugget/config.json`:
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `backend` | string | `"textgen"` | Backend to use |
-| `api_url` | string | `"http://127.0.0.1:5000"` | Upstream model server URL |
-| `model` | string | `"gemma-4-E4B-it-uncensored-Q4_K_M.gguf"` | Model filename |
-| `temperature` | number | `0.7` | Sampling temperature |
-| `max_tokens` | integer | `2048` | Maximum tokens to generate |
-| `top_p` | number | `0.95` | Top-p sampling |
-| `top_k` | integer | `20` | Top-k sampling |
-| `thinking_effort` | integer | `0` | Chain-of-thought effort: 0=off, 1=low, 2=medium, 3=high |
-| `show_thinking` | boolean | `false` | Print thinking tokens to terminal |
-| `show_tool_calls` | boolean | `true` | Print tool call/response events |
-| `show_tool_responses` | boolean | `false` | Print full tool response payloads |
-| `show_system_prompt` | boolean | `false` | Print the system prompt at session start |
-| `system_prompt` | string | `"You are a helpful assistant."` | Base system prompt |
-| `append_datetime` | boolean | `true` | Append current UTC datetime to system prompt |
-| `sessions_dir` | string | `~/.local/share/nugget/sessions` | Where sessions are stored |
-| `debug` | boolean | `false` | Enable debug output |
-| `approval` | object | see above | Approval policy (see [Approval Rules](#approval-rules)) |
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "backend": {
+      "type": "string",
+      "default": "textgen",
+      "description": "Backend identifier. Currently only 'textgen' is available."
+    },
+    "api_url": {
+      "type": "string",
+      "format": "uri",
+      "default": "http://127.0.0.1:5000",
+      "description": "Base URL of the upstream model server."
+    },
+    "model": {
+      "type": "string",
+      "default": "gemma-4-E4B-it-uncensored-Q4_K_M.gguf",
+      "description": "Model filename to request from the backend."
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2,
+      "default": 0.7
+    },
+    "max_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2048
+    },
+    "thinking_effort": {
+      "type": "integer",
+      "enum": [0, 1, 2, 3],
+      "default": 0,
+      "description": "0=off, 1=low, 2=medium, 3=high chain-of-thought effort."
+    },
+    "sessions_dir": {
+      "type": "string",
+      "default": "~/.local/share/nugget/sessions",
+      "description": "Directory where session JSON files are saved."
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": ["allow", "deny", "ask"],
+          "default": "allow"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tool":   { "type": "string" },
+              "args":   { "type": "object" },
+              "action": { "type": "string", "enum": ["allow", "deny", "ask"] }
+            },
+            "required": ["action"]
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 ---
 
 ## Writing a Custom Tool
 
-Tools are **auto-discovered**: any `.py` file in `src/nugget/tools/` that exposes `SCHEMA` and `execute` is automatically registered at startup.
+Place a new file in `src/nugget/tools/`. It is auto-discovered on startup.
 
-### Quickstart (from template)
-
-1. Copy `tool_docs/_bash_tool_template.py` to `src/nugget/tools/your_tool.py`.
-2. Fill in the `── CONFIGURE ──` section (tool name, description, command, args).
-3. Restart nugget — the tool is live.
-
-See `tool_docs/ping_host.py` for a fully worked example.
-
-### Manual approach
+**Minimal template:**
 
 ```python
 # src/nugget/tools/my_tool.py
 
-APPROVAL = "allow"   # optional: "allow" | "deny" | "ask" | callable
+# Optional: static or dynamic approval gate
+APPROVAL = "allow"          # or "ask" / "deny"
+# def APPROVAL(args: dict) -> str: ...
 
 SCHEMA = {
     "type": "function",
     "function": {
         "name": "my_tool",
-        "description": "Does something useful.",
+        "description": "What this tool does.",
         "parameters": {
             "type": "object",
             "properties": {
-                "input": {
+                "param1": {
                     "type": "string",
-                    "description": "The input value",
-                },
+                    "description": "Description of param1."
+                }
             },
-            "required": ["input"],
+            "required": ["param1"],
         },
     },
 }
 
 
 def execute(args: dict) -> dict:
-    value = args.get("input", "")
-    # ... do work ...
+    """Return a JSON-serialisable dict."""
+    value = args.get("param1", "")
     return {"result": value.upper()}
 ```
 
-### Tool module contract
+**Conventions:**
 
-| Attribute | Required | Description |
-|-----------|----------|-------------|
-| `SCHEMA` | ✓ | OpenAI function-tool schema dict |
-| `execute(args: dict) -> object` | ✓ | Called with the model's argument dict; return any JSON-serialisable value |
-| `APPROVAL` | — | String (`"allow"`, `"deny"`, `"ask"`) or `callable(args) -> str` |
+- Always return a `dict`. On error, include an `"error"` key.
+- Never raise exceptions; catch them and return `{"error": str(e)}`.
+- The `SCHEMA` name must be unique across all loaded tools.
+- Use `APPROVAL = "ask"` for any tool that modifies system state.
 
 ---
 
 ## Writing a Custom Backend
 
-Backends live in `src/nugget/backends/` and implement the `Backend` protocol defined in `src/nugget/backends/__init__.py`.
-
-### Protocol
+Backends live in `src/nugget/backends/` and must implement the `Backend` protocol:
 
 ```python
-class Backend(Protocol):
+from nugget.backends import Backend
+
+class MyBackend:
     def run(
         self,
         messages: list[dict],
         tool_schemas: list[dict],
-        tool_executor: Callable[[str, dict], object],
+        tool_executor: callable,
         system_prompt: str,
-        **kwargs,
-    ) -> tuple[str, str | None, list[dict]]: ...
+        thinking_effort: int = 0,
+        on_token: callable = None,
+        on_thinking: callable = None,
+        on_tool_call: callable = None,
+        on_tool_response: callable = None,
+        on_tool_denied: callable = None,
+    ) -> tuple[str, str, list]:
+        """
+        Returns:
+          text           — final assistant text
+          thinking       — raw chain-of-thought string (empty if disabled)
+          exchanges      — list of tool call/response dicts for session history
+        """
+        ...
 ```
 
-**Parameters:**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `messages` | `list[dict]` | Conversation history (OpenAI message format) |
-| `tool_schemas` | `list[dict]` | List of active tool schemas |
-| `tool_executor` | `Callable[[str, dict], object]` | Call this to execute a tool: `tool_executor(tool_name, args)` |
-| `system_prompt` | `str` | Fully rendered system prompt string |
-| `**kwargs` | — | Optional: `thinking_effort`, `on_token`, `on_thinking`, `on_tool_call`, `on_tool_response`, `on_tool_denied` callbacks |
-
-**Return value:** `(response_text, thinking_text_or_None, tool_exchanges_list)`
-
-### Registering the backend
-
-Add a branch to `make_backend()` in `src/nugget/backends/__init__.py`:
-
-```python
-def make_backend(config) -> Backend:
-    name = config.get("backend", "textgen")
-    if name == "textgen":
-        from .textgen import TextgenBackend
-        return TextgenBackend(config)
-    if name == "my_backend":
-        from .my_backend import MyBackend
-        return MyBackend(config)
-    raise ValueError(f"unknown backend: {name!r}")
-```
-
-Then set `"backend": "my_backend"` in `~/.config/nugget/config.json` or pass `--backend my_backend` on the CLI.
+Register it in `src/nugget/backends/__init__.py` inside `make_backend()`.
