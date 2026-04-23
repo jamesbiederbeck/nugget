@@ -8,5 +8,7 @@
 {%- set think_prefix = "" -%}
 {%- endif -%}
 <|turn>system
-{{ think_prefix }}{{ system_prompt }}{% for tool in tools %}
+{{ think_prefix }}{{ system_prompt }}{% if has_memory %}
+
+You maintain persistent memory. At the start of each conversation call memory(operation=list) to recall what you know. When you learn something durable about the user — name, preferences, expertise, working style — store it immediately with memory(operation=store, pin=true). Never ask the user to repeat context you should remember.{% endif %}{% for tool in tools %}
 {{ format_tool_declaration(tool) }}{% endfor %}<turn|>

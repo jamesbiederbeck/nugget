@@ -196,12 +196,16 @@ def build_prompt(
     system_prompt: str,
     thinking_effort: int,
 ) -> str:
+    has_memory = any(
+        s.get("function", {}).get("name") == "memory" for s in tool_schemas
+    )
     tmpl = _jinja_env.get_template("system.j2")
     system_content = tmpl.render(
         system_prompt=system_prompt,
         tools=tool_schemas,
         thinking_effort=thinking_effort,
         format_tool_declaration=format_tool_declaration,
+        has_memory=has_memory,
     )
     parts = [system_content]
     for msg in messages:
@@ -245,6 +249,76 @@ class TextgenBackend:
         choice = data["choices"][0]
         return choice["text"], choice["finish_reason"]
 
+    def _complete_streaming(
+        self,
+        prompt: str,
+        stop: list[str],
+        on_token: Callable[[str], None] | None = None,
+        on_thinking: Callable[[str], None] | None = None,
+    ) -> tuple[str, str]:
+        """Stream one completion turn. Fires on_token for visible text, on_thinking for thought blocks."""
+        url = f"{self.cfg.api_url}/v1/completions"
+        payload = {
+            "model": self.cfg.model,
+            "temperature": self.cfg.temperature,
+            "max_tokens": self.cfg.max_tokens,
+            "top_p": self.cfg.top_p,
+            "top_k": self.cfg.top_k,
+            "prompt": prompt,
+            "stop": stop,
+            "stream": True,
+        }
+        if self.cfg.debug:
+            print(json.dumps({"url": url, "streaming": True}, indent=2))
+
+        accumulated = ""
+        finish_reason = "stop"
+        is_text_mode = False
+        _LOOKAHEAD = 20
+        _SPECIAL = ("<|channel>thought", "<|tool_call>")
+
+        resp = self._session.post(url, json=payload, stream=True, timeout=120)
+        resp.raise_for_status()
+
+        for raw_line in resp.iter_lines():
+            if not raw_line:
+                continue
+            if raw_line == b"data: [DONE]":
+                break
+            if not raw_line.startswith(b"data: "):
+                continue
+            chunk = json.loads(raw_line[6:])
+            choice = chunk["choices"][0]
+            tok = choice["text"]
+            fr = choice.get("finish_reason")
+            if fr:
+                finish_reason = fr
+            accumulated += tok
+
+            if not is_text_mode:
+                if len(accumulated) >= _LOOKAHEAD and not any(
+                    accumulated.startswith(p) for p in _SPECIAL
+                ):
+                    is_text_mode = True
+                    if on_token:
+                        on_token(accumulated)
+            elif on_token:
+                on_token(tok)
+
+        # Post-stream: handle thinking blocks and short responses
+        if not is_text_mode:
+            if "<|channel>thought" in accumulated:
+                thinking_text, response_text = parse_thinking(accumulated)
+                if thinking_text and on_thinking:
+                    on_thinking(thinking_text)
+                if response_text and "<|tool_call>" not in accumulated and on_token:
+                    on_token(response_text)
+            elif accumulated and "<|tool_call>" not in accumulated and on_token:
+                # Short response that never reached the lookahead threshold
+                on_token(accumulated)
+
+        return accumulated, finish_reason
+
     def run(
         self,
         messages: list[dict],
@@ -256,6 +330,7 @@ class TextgenBackend:
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_response: Callable[[str, object], None] | None = None,
         on_tool_denied: Callable[[str, str], None] | None = None,
+        on_token: Callable[[str], None] | None = None,
         **kwargs,
     ) -> tuple[str, str | None, list[dict]]:
         has_tools = bool(tool_schemas)
@@ -267,7 +342,12 @@ class TextgenBackend:
 
         for _ in range(16):
             try:
-                text, finish_reason = self._complete(prompt, stop)
+                if on_token is not None:
+                    text, finish_reason = self._complete_streaming(
+                        prompt, stop, on_token=on_token, on_thinking=on_thinking
+                    )
+                else:
+                    text, finish_reason = self._complete(prompt, stop)
             except requests.RequestException as e:
                 raise BackendError(str(e)) from e
 
@@ -301,7 +381,8 @@ class TextgenBackend:
             accumulated = ""
 
         thinking_out, final_text = parse_thinking(accumulated)
-        if thinking_out and on_thinking:
+        if thinking_out and on_thinking and on_token is None:
+            # In streaming mode _complete_streaming already fired on_thinking
             on_thinking(thinking_out)
 
         return final_text, thinking_out, tool_exchanges

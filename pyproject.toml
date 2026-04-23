@@ -15,12 +15,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-mock"]
+web = ["fastapi>=0.111", "uvicorn[standard]>=0.29"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-nugget = ["templates/*.j2"]
+nugget = ["templates/*.j2", "web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -28,3 +29,4 @@ addopts = "-v"
 
 [project.scripts]
 nugget = "nugget.__main__:main"
+nugget-server = "nugget.server:main"

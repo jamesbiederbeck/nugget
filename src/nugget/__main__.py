@@ -13,6 +13,8 @@ from .session import Session
 from . import tools as tool_registry
 from . import display
 from . import approval as approval_mod
+from . import commands as commands_mod
+from .commands import CommandContext
 from .tools.memory import get_pinned as _get_pinned
 
 
@@ -137,16 +139,19 @@ def main() -> None:
     if args.session == "last":
         recent = Session.list_sessions(cfg.sessions_path())
         session_id = recent[0]["id"] if recent else None
-        session = Session.load(session_id, cfg.sessions_path()) if session_id else Session.new(cfg.sessions_path())
+        _session = Session.load(session_id, cfg.sessions_path()) if session_id else Session.new(cfg.sessions_path())
     elif args.session:
-        session = Session.load(args.session, cfg.sessions_path())
+        _session = Session.load(args.session, cfg.sessions_path())
     else:
-        session = Session.new(cfg.sessions_path())
+        _session = Session.new(cfg.sessions_path())
+
+    # Mutable reference so /session command can swap the active session
+    session_cell = [_session]
 
     backend = make_backend(cfg)
 
     if sys.stdin.isatty():
-        display.print_session_header(session.id)
+        display.print_session_header(session_cell[0].id)
 
     def _system_prompt() -> str:
         from datetime import datetime, timezone
@@ -189,7 +194,17 @@ def main() -> None:
         return tool_registry.execute(name, args)
 
     def run_turn(user_input: str) -> None:
+        session = session_cell[0]
         session.add_user(user_input)
+
+        streaming_started = [False]
+
+        def on_token(tok: str) -> None:
+            if not streaming_started[0]:
+                display.print_assistant_begin()
+                streaming_started[0] = True
+            display.print_token(tok)
+
         try:
             text, thinking, tool_exchanges = backend.run(
                 messages=session.messages,
@@ -201,15 +216,24 @@ def main() -> None:
                 on_tool_call=on_tool_call,
                 on_tool_response=on_tool_response,
                 on_tool_denied=on_tool_denied,
+                on_token=on_token,
             )
         except BackendError as e:
+            if streaming_started[0]:
+                display.print_assistant_end()
             display.print_error(str(e))
             return
         except KeyboardInterrupt:
+            if streaming_started[0]:
+                display.print_assistant_end()
             print()
             return
 
-        display.print_assistant(text)
+        if streaming_started[0]:
+            display.print_assistant_end()
+        elif text:
+            display.print_assistant(text)
+
         session.add_assistant(text, thinking=thinking, tool_calls=tool_exchanges)
         session.save()
 
@@ -222,10 +246,39 @@ def main() -> None:
     if args.non_interactive and not args.message:
         parser.error("--non-interactive requires a MESSAGE argument")
 
+    # ── Readline history ─────────────────────────────────────────────────────
+    try:
+        import readline
+        import atexit
+        from pathlib import Path as _Path
+        _hist = _Path.home() / ".local" / "share" / "nugget" / "history"
+        _hist.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            readline.read_history_file(_hist)
+        except FileNotFoundError:
+            pass
+        readline.set_history_length(1000)
+        atexit.register(readline.write_history_file, _hist)
+    except ImportError:
+        pass
+
+    # ── Command context ──────────────────────────────────────────────────────
+    ctx = CommandContext(
+        session_cell=session_cell,
+        cfg=cfg,
+        active_schemas=active_schemas,
+        get_system_prompt=_system_prompt,
+        sessions_path=cfg.sessions_path(),
+    )
+
     while True:
         user_input = display.print_user_prompt()
         if not user_input:
             break
+        if user_input.startswith("/"):
+            if commands_mod.dispatch(user_input, ctx) == "exit":
+                break
+            continue
         run_turn(user_input)
 
 

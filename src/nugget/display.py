@@ -52,6 +52,18 @@ def print_assistant(text: str) -> None:
     print(f"\n{BOLD}{WHITE}assistant:{RESET} {text}\n")
 
 
+def print_assistant_begin() -> None:
+    print(f"\n{BOLD}{WHITE}assistant:{RESET} ", end="", flush=True)
+
+
+def print_assistant_end() -> None:
+    print("\n")
+
+
+def print_token(text: str) -> None:
+    print(text, end="", flush=True)
+
+
 def print_user_prompt() -> str:
     try:
         return input(f"{BOLD}{BLUE}you:{RESET} ")
