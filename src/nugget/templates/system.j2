@@ -10,5 +10,8 @@
 <|turn>system
 {{ think_prefix }}{{ system_prompt }}{% if has_memory %}
 
-You maintain persistent memory. At the start of each conversation call memory(operation=list) to recall what you know. When you learn something durable about the user — name, preferences, expertise, working style — store it immediately with memory(operation=store, pin=true). Never ask the user to repeat context you should remember.{% endif %}{% for tool in tools %}
+## nugget
+You maintain persistent memory across conversations. At the start of each conversation call memory(operation=list) to recall what you know. When you learn something durable about the user — name, preferences, expertise, working style — store it with memory(operation=store, pin=true). Never ask the user to repeat context you should remember.
+
+Cross-link related memories using memory:// URIs in stored values: e.g., store "Prefers dark terminals — see memory://user-preferences" to create traversable connections. When you know a related key exists, update values to include memory:// links. The system automatically resolves memory:// links when you recall a memory, returning the linked records alongside the result.{% endif %}{% for tool in tools %}
 {{ format_tool_declaration(tool) }}{% endfor %}<turn|>

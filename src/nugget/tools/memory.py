@@ -3,9 +3,12 @@ Persistent memory backed by SQLite at ~/.local/share/nugget/memory.db.
 Operations: store, recall, search, list, delete
 """
 
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+_MEMORY_LINK_RE = re.compile(r"memory://([^\s,;)\"']+)")
 
 _DB_PATH = Path.home() / ".local" / "share" / "nugget" / "memory.db"
 
@@ -24,7 +27,9 @@ SCHEMA = {
             "'recall' retrieves a value by exact key; "
             "'search' finds memories whose key or value contains a substring; "
             "'list' returns all stored keys; "
-            "'delete' removes a key."
+            "'delete' removes a key. "
+            "Link related memories using memory:// URIs in stored values "
+            "(e.g., 'see memory://user-name'). Links are auto-resolved when recalling."
         ),
         "parameters": {
             "type": "object",
@@ -39,7 +44,7 @@ SCHEMA = {
                 },
                 "value": {
                     "type": "string",
-                    "description": "Value to store (required for store)",
+                    "description": "Value to store (required for store). May include memory:// URIs to link to related keys.",
                 },
                 "query": {
                     "type": "string",
@@ -86,6 +91,25 @@ def get_pinned() -> list[dict]:
         return [{"key": r[0], "value": r[1]} for r in rows]
     except Exception:
         return []
+
+
+def _follow_links(value: str) -> list[dict]:
+    """Fetch memories referenced by memory:// URIs found in value."""
+    keys = _MEMORY_LINK_RE.findall(value)
+    if not keys or not _DB_PATH.exists():
+        return []
+    results = []
+    try:
+        with _connect() as conn:
+            for k in dict.fromkeys(keys):  # deduplicate, preserve order
+                row = conn.execute(
+                    "SELECT key, value, pinned FROM memory WHERE key=?", (k,)
+                ).fetchone()
+                if row:
+                    results.append({"key": row[0], "value": row[1], "pinned": bool(row[2])})
+    except Exception:
+        pass
+    return results
 
 
 def execute(args: dict) -> dict:
@@ -140,7 +164,11 @@ def execute(args: dict) -> dict:
                     "note": "exact key not found, returning fuzzy matches",
                     "results": [{"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])} for r in rows],
                 }
-        return {"key": key, "value": row[0], "updated_at": row[1], "pinned": bool(row[2])}
+        result = {"key": key, "value": row[0], "updated_at": row[1], "pinned": bool(row[2])}
+        links = _follow_links(row[0])
+        if links:
+            result["links"] = links
+        return result
 
     if op == "search":
         query = args.get("query", "").strip()
@@ -153,10 +181,14 @@ def execute(args: dict) -> dict:
                 "WHERE key LIKE ? OR value LIKE ? ORDER BY updated_at DESC",
                 (pattern, pattern),
             ).fetchall()
-        return {
-            "query": query,
-            "results": [{"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])} for r in rows],
-        }
+        results_list = []
+        for r in rows:
+            entry = {"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])}
+            links = _follow_links(r[1])
+            if links:
+                entry["links"] = links
+            results_list.append(entry)
+        return {"query": query, "results": results_list}
 
     if op == "list":
         with _connect() as conn:
