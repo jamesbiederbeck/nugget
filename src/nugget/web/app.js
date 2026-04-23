@@ -213,12 +213,15 @@ function handleEvent(event, bubble, contentEl, thinkingRef) {
     contentEl.textContent += event.text;
     scrollToBottom();
   } else if (event.type === 'thinking') {
+    let block;
     if (!thinkingRef.thinkingBlock) {
-      thinkingRef.set(appendThinkingBlock(bubble, event.text));
+      block = appendThinkingBlock(bubble, event.text);
+      thinkingRef.set(block);
     } else {
-      thinkingRef.thinkingBlock.querySelector('.thinking-content').textContent = event.text;
+      block = thinkingRef.thinkingBlock;
+      block.querySelector('.thinking-content').textContent += event.text;
     }
-    bubble.insertBefore(thinkingRef.thinkingBlock, contentEl);
+    bubble.insertBefore(block, contentEl);
     scrollToBottom();
   } else if (event.type === 'tool_call') {
     appendToolCall(bubble, event.name, event.args);
