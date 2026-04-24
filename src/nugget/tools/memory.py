@@ -54,6 +54,10 @@ SCHEMA = {
                     "type": "boolean",
                     "description": "If true, mark this memory as pinned so it always appears in the system prompt. If false, unpin it. Omit to leave pin status unchanged.",
                 },
+                "link_depth": {
+                    "type": "integer",
+                    "description": "Levels of memory:// links to auto-resolve in recall and search results (default 1, 0 disables, max 3). Increase only when traversing a known chain; keep low to avoid context bloat.",
+                },
             },
             "required": ["operation"],
         },
@@ -93,22 +97,34 @@ def get_pinned() -> list[dict]:
         return []
 
 
-def _follow_links(value: str) -> list[dict]:
-    """Fetch memories referenced by memory:// URIs found in value."""
-    keys = _MEMORY_LINK_RE.findall(value)
-    if not keys or not _DB_PATH.exists():
+def _follow_links(
+    value: str,
+    conn: sqlite3.Connection,
+    depth: int = 1,
+    visited: set | None = None,
+) -> list[dict]:
+    """Fetch memories referenced by memory:// URIs; recurse up to depth levels."""
+    if depth <= 0:
         return []
+    keys = _MEMORY_LINK_RE.findall(value)
+    if not keys:
+        return []
+    if visited is None:
+        visited = set()
     results = []
-    try:
-        with _connect() as conn:
-            for k in dict.fromkeys(keys):  # deduplicate, preserve order
-                row = conn.execute(
-                    "SELECT key, value, pinned FROM memory WHERE key=?", (k,)
-                ).fetchone()
-                if row:
-                    results.append({"key": row[0], "value": row[1], "pinned": bool(row[2])})
-    except Exception:
-        pass
+    for k in dict.fromkeys(keys):
+        if k in visited:
+            continue
+        visited.add(k)
+        row = conn.execute(
+            "SELECT key, value, pinned FROM memory WHERE key=?", (k,)
+        ).fetchone()
+        if row:
+            entry = {"key": row[0], "value": row[1], "pinned": bool(row[2])}
+            sub = _follow_links(row[1], conn, depth - 1, visited)
+            if sub:
+                entry["links"] = sub
+            results.append(entry)
     return results
 
 
@@ -147,6 +163,10 @@ def execute(args: dict) -> dict:
         key = args.get("key", "").strip()
         if not key:
             return {"error": "recall requires a key"}
+        try:
+            link_depth = max(0, min(int(args.get("link_depth", 1)), 3))
+        except (TypeError, ValueError):
+            link_depth = 1
         with _connect() as conn:
             row = conn.execute(
                 "SELECT value, updated_at, pinned FROM memory WHERE key=?", (key,)
@@ -164,16 +184,20 @@ def execute(args: dict) -> dict:
                     "note": "exact key not found, returning fuzzy matches",
                     "results": [{"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])} for r in rows],
                 }
-        result = {"key": key, "value": row[0], "updated_at": row[1], "pinned": bool(row[2])}
-        links = _follow_links(row[0])
-        if links:
-            result["links"] = links
+            result = {"key": key, "value": row[0], "updated_at": row[1], "pinned": bool(row[2])}
+            links = _follow_links(row[0], conn, link_depth, visited={key})
+            if links:
+                result["links"] = links
         return result
 
     if op == "search":
         query = args.get("query", "").strip()
         if not query:
             return {"error": "search requires a query"}
+        try:
+            link_depth = max(0, min(int(args.get("link_depth", 1)), 3))
+        except (TypeError, ValueError):
+            link_depth = 1
         pattern = f"%{query}%"
         with _connect() as conn:
             rows = conn.execute(
@@ -181,13 +205,13 @@ def execute(args: dict) -> dict:
                 "WHERE key LIKE ? OR value LIKE ? ORDER BY updated_at DESC",
                 (pattern, pattern),
             ).fetchall()
-        results_list = []
-        for r in rows:
-            entry = {"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])}
-            links = _follow_links(r[1])
-            if links:
-                entry["links"] = links
-            results_list.append(entry)
+            results_list = []
+            for r in rows:
+                entry = {"key": r[0], "value": r[1], "updated_at": r[2], "pinned": bool(r[3])}
+                links = _follow_links(r[1], conn, link_depth, visited={r[0]})
+                if links:
+                    entry["links"] = links
+                results_list.append(entry)
         return {"query": query, "results": results_list}
 
     if op == "list":

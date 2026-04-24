@@ -113,6 +113,57 @@ def test_list_shows_pin_status(tmp_memory_db):
     assert by_key["u"]["pinned"] is False
 
 
+# ── Cross-linking ─────────────────────────────────────────────────────────────
+
+def test_recall_resolves_link(tmp_memory_db):
+    execute({"operation": "store", "key": "user-name", "value": "Victor"})
+    execute({"operation": "store", "key": "user-editor", "value": "Neovim — see memory://user-name"})
+    result = execute({"operation": "recall", "key": "user-editor"})
+    assert "links" in result
+    assert result["links"][0]["key"] == "user-name"
+    assert result["links"][0]["value"] == "Victor"
+
+
+def test_recall_link_depth_zero(tmp_memory_db):
+    execute({"operation": "store", "key": "a", "value": "val — memory://b"})
+    execute({"operation": "store", "key": "b", "value": "linked"})
+    result = execute({"operation": "recall", "key": "a", "link_depth": 0})
+    assert "links" not in result
+
+
+def test_recall_link_depth_recursive(tmp_memory_db):
+    execute({"operation": "store", "key": "c1", "value": "root — memory://c2"})
+    execute({"operation": "store", "key": "c2", "value": "mid — memory://c3"})
+    execute({"operation": "store", "key": "c3", "value": "leaf"})
+    result = execute({"operation": "recall", "key": "c1", "link_depth": 2})
+    assert result["links"][0]["key"] == "c2"
+    assert result["links"][0]["links"][0]["key"] == "c3"
+
+
+def test_recall_link_cycle_safe(tmp_memory_db):
+    execute({"operation": "store", "key": "x", "value": "see memory://y"})
+    execute({"operation": "store", "key": "y", "value": "see memory://x"})
+    result = execute({"operation": "recall", "key": "x", "link_depth": 3})
+    # Should not blow up; x links to y, y would link back to x but x is visited
+    assert result["links"][0]["key"] == "y"
+    assert "links" not in result["links"][0]
+
+
+def test_search_resolves_links(tmp_memory_db):
+    execute({"operation": "store", "key": "proj", "value": "nugget — memory://user-name"})
+    execute({"operation": "store", "key": "user-name", "value": "Victor"})
+    result = execute({"operation": "search", "query": "nugget"})
+    proj = next(r for r in result["results"] if r["key"] == "proj")
+    assert proj["links"][0]["key"] == "user-name"
+
+
+def test_search_link_depth_zero(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "val — memory://other"})
+    execute({"operation": "store", "key": "other", "value": "linked"})
+    result = execute({"operation": "search", "query": "val", "link_depth": 0})
+    assert "links" not in result["results"][0]
+
+
 # ── Schema migration ──────────────────────────────────────────────────────────
 
 def test_schema_migration_adds_pinned_column(tmp_memory_db):
