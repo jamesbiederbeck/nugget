@@ -254,6 +254,10 @@ def main() -> None:
         _hist = _Path.home() / ".local" / "share" / "nugget" / "history"
         _hist.parent.mkdir(parents=True, exist_ok=True)
         try:
+            lines = _hist.read_text().splitlines()
+            cleaned = [l for l in lines if l.strip() and l.strip() != "/"]
+            if len(cleaned) != len(lines):
+                _hist.write_text("\n".join(cleaned) + "\n")
             readline.read_history_file(_hist)
         except FileNotFoundError:
             pass

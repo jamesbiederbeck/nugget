@@ -2,6 +2,11 @@
 
 let currentSessionId = null;
 
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+
 // ── API helpers ────────────────────────────────────────────────────────────
 
 async function api(method, path, body) {
@@ -38,7 +43,7 @@ function renderSessionList(sessions) {
       <div class="session-meta">${s.updated_at.slice(0, 16).replace('T', ' ')} · ${s.turns} turn${s.turns !== 1 ? 's' : ''}</div>
       <div class="session-preview">${escHtml(s.preview)}</div>
     `;
-    item.addEventListener('click', () => openSession(s.id));
+    item.addEventListener('click', () => { openSession(s.id); closeSidebar(); });
     list.appendChild(item);
   }
 }
@@ -122,6 +127,7 @@ function appendThinkingBlock(bubble, text) {
 function appendToolCall(bubble, name, args) {
   const block = document.createElement('div');
   block.className = 'tool-block';
+  block.dataset.block = 'tool-call';
   block.innerHTML = `
     <div class="tool-header tool-call-header">→ <span class="tool-name">${escHtml(name)}</span></div>
     <div class="tool-body">${escHtml(JSON.stringify(args, null, 2))}</div>
@@ -133,6 +139,7 @@ function appendToolCall(bubble, name, args) {
 function appendToolResult(bubble, name, result) {
   const block = document.createElement('div');
   block.className = 'tool-block';
+  block.dataset.block = 'tool-result';
   block.innerHTML = `
     <div class="tool-header tool-result-header">← <span class="tool-name">${escHtml(name)}</span></div>
     <div class="tool-body">${escHtml(typeof result === 'string' ? result : JSON.stringify(result, null, 2))}</div>
@@ -144,12 +151,22 @@ function appendToolResult(bubble, name, result) {
 function appendToolDenied(bubble, name, reason) {
   const block = document.createElement('div');
   block.className = 'tool-block';
+  block.dataset.block = 'tool-result';
   block.innerHTML = `
     <div class="tool-header tool-denied-header">✗ <span class="tool-name">${escHtml(name)}</span> denied</div>
     <div class="tool-body">${escHtml(reason)}</div>
   `;
   bubble.appendChild(block);
   return block;
+}
+
+function appendThinkingIndicator(bubble) {
+  const el = document.createElement('div');
+  el.className = 'thinking-indicator';
+  el.innerHTML = '<span></span><span></span><span></span>';
+  bubble.querySelector('.message-content').before(el);
+  scrollToBottom();
+  return el;
 }
 
 // ── Send message ───────────────────────────────────────────────────────────
@@ -167,6 +184,7 @@ async function sendMessage() {
   appendUserMessage(text);
   const bubble = appendAssistantBubble();
   const contentEl = bubble.querySelector('.message-content');
+  const indicator = appendThinkingIndicator(bubble);
   let thinkingBlock = null;
   let pendingThinking = null;
 
@@ -200,6 +218,7 @@ async function sendMessage() {
       }
     }
   } catch (err) {
+    indicator.remove();
     contentEl.textContent = `Error: ${err.message}`;
     contentEl.style.color = 'var(--red)';
   }
@@ -210,9 +229,11 @@ async function sendMessage() {
 
 function handleEvent(event, bubble, contentEl, thinkingRef) {
   if (event.type === 'token') {
+    bubble.querySelector('.thinking-indicator')?.remove();
     contentEl.textContent += event.text;
     scrollToBottom();
   } else if (event.type === 'thinking') {
+    bubble.querySelector('.thinking-indicator')?.remove();
     let block;
     if (!thinkingRef.thinkingBlock) {
       block = appendThinkingBlock(bubble, event.text);
@@ -224,6 +245,7 @@ function handleEvent(event, bubble, contentEl, thinkingRef) {
     bubble.insertBefore(block, contentEl);
     scrollToBottom();
   } else if (event.type === 'tool_call') {
+    bubble.querySelector('.thinking-indicator')?.remove();
     appendToolCall(bubble, event.name, event.args);
     scrollToBottom();
   } else if (event.type === 'tool_result') {
@@ -286,6 +308,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   sendBtn.addEventListener('click', sendMessage);
   document.getElementById('new-session-btn').addEventListener('click', createNewSession);
+
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  function openSidebar() { sidebar.classList.add('open'); overlay.classList.add('open'); }
+  document.getElementById('menu-btn').addEventListener('click', openSidebar);
+  overlay.addEventListener('click', closeSidebar);
+
+  document.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.toggle;
+      const active = btn.classList.toggle('active');
+      document.getElementById('messages').classList.toggle(`hide-${key}`, !active);
+    });
+  });
 
   await loadSessions();
 

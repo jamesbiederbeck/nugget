@@ -7,7 +7,13 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="sidebar">
+  <div id="mobile-bar">
+    <button id="menu-btn">&#9776;</button>
+    <span class="logo">nugget</span>
+  </div>
+  <div id="sidebar-overlay"></div>
+
+  <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <span class="logo">nugget</span>
       <button id="new-session-btn" title="New session">+</button>
@@ -17,6 +23,11 @@
 
   <div class="main">
     <div id="messages"></div>
+    <div class="view-toggles">
+      <button class="toggle-btn active" data-toggle="thinking">thinking</button>
+      <button class="toggle-btn active" data-toggle="tool-calls">tool calls</button>
+      <button class="toggle-btn active" data-toggle="tool-results">tool results</button>
+    </div>
     <div class="input-area">
       <textarea id="input" placeholder="Message…" rows="1"></textarea>
       <button id="send-btn">Send</button>
