@@ -66,7 +66,7 @@ def print_token(text: str) -> None:
 
 def print_user_prompt() -> str:
     try:
-        return input(f"{BOLD}{BLUE}you:{RESET} ")
+        return input(f"return input(f"{BOLD}{BLUE}you:{RESET} ")01{BOLD}{BLUE}return input(f"{BOLD}{BLUE}you:{RESET} ")02you:return input(f"{BOLD}{BLUE}you:{RESET} ")01{RESET}return input(f"{BOLD}{BLUE}you:{RESET} ")02 ")
     except (EOFError, KeyboardInterrupt):
         print()
         return ""
