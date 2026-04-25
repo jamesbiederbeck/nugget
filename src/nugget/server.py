@@ -156,7 +156,7 @@ async def chat(session_id: str, req: ChatRequest):
 
     def run_in_thread() -> None:
         try:
-            text, thinking, exchanges = _get_backend().run(
+            text, thinking, exchanges, _ = _get_backend().run(
                 messages=session.messages,
                 tool_schemas=active_schemas,
                 tool_executor=_web_tool_executor,

@@ -1,0 +1,25 @@
+{
+  "backend": "textgen",
+  "api_url": "http://host.docker.internal:5000",
+  "model": "gemma-4-E4B-it-uncensored-Q4_K_M.gguf",
+  "temperature": 0.7,
+  "max_tokens": 2048,
+  "top_p": 0.95,
+  "top_k": 20,
+  "sessions_dir": "/root/.local/share/nugget/sessions",
+  "system_prompt": "You are a helpful assistant.",
+  "append_datetime": true,
+  "thinking_effort": 0,
+  "show_thinking": false,
+  "show_tool_calls": true,
+  "show_tool_responses": false,
+  "show_system_prompt": false,
+  "debug": false,
+  "approval": {
+    "default": "allow",
+    "rules": [
+      {"tool": "shell", "action": "deny"},
+      {"tool": "memory", "args": {"operation": "delete"}, "action": "ask"}
+    ]
+  }
+}

@@ -182,8 +182,26 @@ def main() -> None:
         if cfg.show_tool_responses:
             display.print_tool_response(name, result)
 
+    def on_tool_routed(name: str, result: object, sink: str) -> None:
+        # Routed results never enter the model's context, so always surface
+        # them to the user regardless of cfg.show_tool_responses.
+        display.print_tool_response(name, result)
+
     def on_tool_denied(name: str, reason: str) -> None:
         display.print_error(f"tool '{name}' not executed: {reason}")
+
+    def sink_approval_prompt(name: str, abs_path) -> bool:
+        if not sys.stdin.isatty():
+            return False
+        print(f"\n{display.BOLD}{display.YELLOW}[approval]{display.RESET} "
+              f"{display.CYAN}{name}{display.RESET} "
+              f"{display.DIM}write → {abs_path}{display.RESET}")
+        try:
+            answer = input(f"{display.BOLD}Allow? [y/N]{display.RESET} ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            answer = ""
+        return answer in ("y", "yes")
 
     def tool_executor(name: str, args: dict) -> object:
         approved, reason = approval_mod.check(
@@ -206,7 +224,7 @@ def main() -> None:
             display.print_token(tok)
 
         try:
-            text, thinking, tool_exchanges = backend.run(
+            text, thinking, tool_exchanges, _ = backend.run(
                 messages=session.messages,
                 tool_schemas=active_schemas,
                 tool_executor=tool_executor,
@@ -217,6 +235,10 @@ def main() -> None:
                 on_tool_response=on_tool_response,
                 on_tool_denied=on_tool_denied,
                 on_token=on_token,
+                on_tool_routed=on_tool_routed,
+                check_file_sink=approval_mod.check_file_sink,
+                sink_approval_prompt=sink_approval_prompt,
+                approval_config=cfg.approval_config(),
             )
         except BackendError as e:
             if streaming_started[0]:

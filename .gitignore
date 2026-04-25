@@ -15,6 +15,10 @@ sessions/
 session.txt
 session.md
 
+# Docker volumes (user data)
+docker/data/
+docker/config/config.json
+
 # Environment / secrets
 .env
 .env.*

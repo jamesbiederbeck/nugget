@@ -1,0 +1,28 @@
+services:
+  nugget-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nugget-server
+    ports:
+      - "8000:8000"
+    volumes:
+      # Config directory - stores config.json
+      # Copy docker/config/config.json.template to docker/config/config.json and edit before running
+      - ./docker/config:/root/.config/nugget
+      # Data directory - stores sessions and memory.db
+      - ./docker/data:/root/.local/share/nugget
+    command: ["python", "-m", "nugget.server", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    # If you use text-generation-webui or another backend, uncomment the following:
+    # network_mode: host
+    # Or add a networks section to connect to another container:
+    # networks:
+    #   - nugget-network
+
+# Uncomment if you need to connect to other services:
+# networks:
+#   nugget-network:
+#     driver: bridge

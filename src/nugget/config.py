@@ -23,6 +23,21 @@ DEFAULTS: dict[str, Any] = {
     "show_tool_responses": False,
     "show_system_prompt": False,
     "debug": False,
+    # The "approval" section governs tool calls. Two additional *optional*
+    # keys govern where tools with OUTPUT="file:<path>" may write:
+    #
+    #   "sink_rules": list of dicts (see nugget.approval.DEFAULT_SINK_RULES
+    #       for the out-of-box policy). Absence means use the defaults:
+    #       /tmp/nugget and $CWD are auto-allowed; anything that would
+    #       overwrite an existing file asks; everything else asks.
+    #
+    #   "sink_conflict": "strictest" (default) or "first". Controls which
+    #       action wins when multiple rules match the same path —
+    #       "strictest" ranks deny > ask > allow; "first" takes the
+    #       action of the first matching rule in list order.
+    #
+    # Both keys are left out of the auto-generated config so users see the
+    # minimal defaults; add them explicitly to override.
     "approval": {
         "default": "allow",
         "rules": [

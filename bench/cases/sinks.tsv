@@ -1,0 +1,27 @@
+id	prompt_id	prompt	tools	constraint_type	constraint_value	target	notes
+file_explicit.tool	file_explicit	Fetch wallabag article 183 and save it using output routing to file:/tmp/nugget/bench.json	wallabag	regex	^wallabag$	tool_call[0].name	explicit "output routing" language
+file_explicit.output	file_explicit	Fetch wallabag article 183 and save it using output routing to file:/tmp/nugget/bench.json	wallabag	regex	^file:	tool_call[0].args.output	explicit "output routing" language
+file_natural.tool	file_natural	Save wallabag article 183 to file:/tmp/nugget/bench.json	wallabag	regex	^wallabag$	tool_call[0].name	natural "save to file:"
+file_natural.output	file_natural	Save wallabag article 183 to file:/tmp/nugget/bench.json	wallabag	regex	^file:	tool_call[0].args.output	natural "save to file:"
+file_implicit.tool	file_implicit	Download wallabag article 183 to /tmp/nugget/bench.json	wallabag	regex	^wallabag$	tool_call[0].name	implicit, no "output" keyword
+file_implicit.output	file_implicit	Download wallabag article 183 to /tmp/nugget/bench.json	wallabag	regex	^file:	tool_call[0].args.output	implicit, no "output" keyword
+display_explicit.tool	display_explicit	Fetch wallabag article 183 and display it to me using output routing	wallabag	regex	^wallabag$	tool_call[0].name	explicit "output routing"
+display_explicit.output	display_explicit	Fetch wallabag article 183 and display it to me using output routing	wallabag	regex	^display	tool_call[0].args.output	explicit "output routing"
+display_natural.tool	display_natural	Show me wallabag article 183	wallabag	regex	^wallabag$	tool_call[0].name	natural "show me"
+display_natural.output	display_natural	Show me wallabag article 183	wallabag	regex	^display	tool_call[0].args.output	natural "show me"
+display_natural2.tool	display_natural2	Read me the content of wallabag article 183	wallabag	regex	^wallabag$	tool_call[0].name	"read me" phrasing
+display_natural2.output	display_natural2	Read me the content of wallabag article 183	wallabag	regex	^display	tool_call[0].args.output	"read me" phrasing
+display_jmes.tool	display_jmes	Show me just the title of wallabag article 183	wallabag	regex	^wallabag$	tool_call[0].name	partial field extraction
+display_jmes.output	display_jmes	Show me just the title of wallabag article 183	wallabag	regex	^display:	tool_call[0].args.output	partial field extraction
+var_bind.tool	var_bind	Fetch wallabag article 183, bind it to $art, then show me the title from $art	wallabag	regex	^wallabag$	tool_call[0].name	variable binding
+var_bind.output	var_bind	Fetch wallabag article 183, bind it to $art, then show me the title from $art	wallabag	regex	^\$	tool_call[0].args.output	variable binding
+no_sink_title.tool	no_sink_title	What is the title of wallabag article 183?	wallabag	regex	^wallabag$	tool_call[0].name	needs reasoning — inline correct
+no_sink_title.output	no_sink_title	What is the title of wallabag article 183?	wallabag	absent		tool_call[0].args.output	needs reasoning — inline correct
+no_sink_summary.tool	no_sink_summary	Summarize wallabag article 183 for me	wallabag	regex	^wallabag$	tool_call[0].name	needs reasoning — inline correct
+no_sink_summary.output	no_sink_summary	Summarize wallabag article 183 for me	wallabag	absent		tool_call[0].args.output	needs reasoning — inline correct
+shell_display.tool	shell_display	Run ls /tmp and show me the output	shell	regex	^shell$	tool_call[0].name	shell → almost always display
+shell_display.output	shell_display	Run ls /tmp and show me the output	shell	regex	^display	tool_call[0].args.output	shell → almost always display
+shell_file.tool	shell_file	Run ls /tmp and save the output to file:/tmp/nugget/ls.json using output routing	shell	regex	^shell$	tool_call[0].name	explicit file for shell
+shell_file.output	shell_file	Run ls /tmp and save the output to file:/tmp/nugget/ls.json using output routing	shell	regex	^file:	tool_call[0].args.output	explicit file for shell
+calc_no_sink.tool	calc_no_sink	What is 2 to the power of 32?	calculator	regex	^calculator$	tool_call[0].name	pure reasoning, no routing
+calc_no_sink.output	calc_no_sink	What is 2 to the power of 32?	calculator	absent		tool_call[0].args.output	pure reasoning, no routing

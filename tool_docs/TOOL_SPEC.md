@@ -20,9 +20,10 @@
    - [memory](#memory)
 5. [Token Limits](#token-limits)
 6. [Approval Rules](#approval-rules)
-7. [Configuration Schema](#configuration-schema)
-8. [Writing a Custom Tool](#writing-a-custom-tool)
-9. [Writing a Custom Backend](#writing-a-custom-backend)
+7. [Output Routing](#output-routing)
+8. [Configuration Schema](#configuration-schema)
+9. [Writing a Custom Tool](#writing-a-custom-tool)
+10. [Writing a Custom Backend](#writing-a-custom-backend)
 
 ---
 
@@ -671,6 +672,133 @@ def APPROVAL(args: dict) -> str:
     return "ask" if args.get("operation") == "delete" else "allow"
 ```
 
+### File-sink rules
+
+When the model emits a tool call with `output: "file:<path>"`, the
+harness applies a *parallel* path-based policy to decide whether the
+write is permitted. This is independent of the tool-call rules above.
+
+The path is canonicalised by `pathlib.Path.resolve()` — `..` segments,
+symlinks, and `~` are eliminated — and then matched against
+`approval.sink_rules` (or `nugget.approval.DEFAULT_SINK_RULES` if unset).
+
+**Default policy:**
+
+```python
+DEFAULT_SINK_RULES = [
+    {"subtree": "/tmp/nugget", "action": "allow"},
+    {"subtree": "$CWD",        "action": "allow"},
+    {"existing": True,         "action": "ask"},
+]
+# No-rule-matched → ask.
+```
+
+`/tmp/nugget` and the current working directory are auto-allowed. Touching
+an existing file anywhere prompts. Anything else also prompts.
+
+**Rule match keys** (exactly one per rule):
+
+| Key       | Value     | Matches when…                                              |
+|-----------|-----------|------------------------------------------------------------|
+| `subtree` | `string`  | Path is equal to or inside this prefix. `"$CWD"` expands at evaluation time to the real cwd. |
+| `exact`   | `string`  | Path equals this one (after canonicalisation).             |
+| `existing`| `bool`    | `path.exists()` equals the given bool.                     |
+| `any`     | `bool`    | Always (when truthy). Use as a catch-all override.         |
+
+**Conflict resolution** — controlled by `approval.sink_conflict`:
+
+| Strategy   | Rule                                                         |
+|------------|--------------------------------------------------------------|
+| `strictest` (default) | Among all matching rules, the most restrictive action wins (`deny` > `ask` > `allow`). |
+| `first`    | The action of the first matching rule in list order.         |
+
+In CLI mode, `"ask"` triggers an interactive prompt showing the resolved
+absolute path. In web mode (or whenever no `check_file_sink` callable is
+wired), file sinks gracefully degrade to inline behaviour.
+
+**Example: locking down writes to a project tree:**
+
+```json
+{
+  "approval": {
+    "sink_rules": [
+      { "subtree": "$CWD",           "action": "allow" },
+      { "subtree": "/etc",           "action": "deny"  },
+      { "exact":   "~/.zshrc",       "action": "deny"  },
+      { "existing": true,            "action": "ask"   }
+    ],
+    "sink_conflict": "strictest"
+  }
+}
+```
+
+---
+
+## Output Routing
+
+Each tool call may carry a reserved `output` arg that controls where the
+tool's result goes. The harness strips this key before calling `execute()`,
+so tools never see it.
+
+| `output` value         | Result destination                                                                                 | Stub the model receives                                |
+|-------------------------|----------------------------------------------------------------------------------------------------|--------------------------------------------------------|
+| absent / `null`         | Inline — full result fed back as `<\|tool_response>`.                                              | *(none — full result)*                                 |
+| `"display"`             | Full result printed to the user (CLI: `display.print_tool_response`).                              | `{status:ok,output:"sent to display"}`                 |
+| `"display:<jmespath>"`  | A field of the result, extracted via JMESPath, printed to the user.                                | `{status:ok,output:"sent to display"}`                 |
+| `"file:<path>"`         | Written to disk under the file-sink rules (see *Approval Rules*).                                  | `{status:ok,output:"written to <abs_path>"}` or `{status:denied,reason:"..."}` |
+| `"$<name>"`             | Whole result bound to a turn-scoped variable named `<name>`. Re-binds within the same turn overwrite silently (the operator-facing `on_tool_routed` event flags `(rebind)`). | `{status:ok,output:"bound to $<name>"}`                |
+| anything else           | Rejected before execution.                                                                          | `{status:error,reason:"unknown sink: ..."}`            |
+
+### Variable substitution
+
+Any **top-level** arg whose value is `"$<name>"` or `"$<name>.<jmespath>"`
+is replaced with the bound value (optionally pathed via JMESPath) before
+the tool runs:
+
+- Whole-value swap only — no string interpolation (`"hello $x"`); the
+  variable reference must be the entire arg value.
+- Match regex: `^\$[A-Za-z_][A-Za-z0-9_]*(\.<jmespath>)?$`.
+- Reference to an unbound name → call rejected with
+  `{status:error,reason:"$<name> not bound"}`; the tool is not invoked.
+- Path against a bound value where JMESPath returns no result → call
+  rejected with `{status:error,reason:"$<name>.<path> not present"}`.
+- Malformed JMESPath in either `output` or an arg value → call rejected
+  with `{status:error,reason:"invalid jmespath '<expr>': ..."}`.
+- Substitution does **not** recurse into nested dicts or lists. If you
+  need a nested binding, capture and re-emit it as the top-level value
+  of an arg slot.
+
+Bindings live for the duration of a single `run()` invocation (i.e. one
+user turn). They are discarded when the turn ends.
+
+### Example: pipe one tool's output into another's input
+
+```
+1. shell({command:"ls /var/log", output:"$logs"})
+   → {status:ok, output:"bound to $logs"}     # model sees stub only
+
+2. analyse({lines:"$logs", output:"display"})
+   → analyse runs with lines=<full result of step 1>; user sees the analysis.
+```
+
+### Example: extract one field of a JSON result
+
+```
+1. wallabag({operation:"get", id:150, output:"display:title"})
+   → user sees just "MyTitle"; model sees {status:ok, output:"sent to display"}.
+
+2. wallabag({operation:"get", id:150, output:"$article"})
+   → full article bound to $article.
+
+3. summarise({text:"$article.body", output:"display"})
+   → summarise runs with text = the article body; user sees the summary.
+```
+
+### Reserved meta-args
+
+Only `output` is reserved today. Other arg keys are forwarded to the
+tool unchanged. New meta-args may be added in future versions.
+
 ---
 
 ## Configuration Schema
@@ -739,6 +867,27 @@ Full JSON Schema for `~/.config/nugget/config.json`:
             },
             "required": ["action"]
           }
+        },
+        "sink_rules": {
+          "type": "array",
+          "description": "Path-based rules for tools whose OUTPUT is 'file:<path>'. If absent, nugget.approval.DEFAULT_SINK_RULES is used.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "subtree":  { "type": "string", "description": "Path or '$CWD' — matches paths under this prefix." },
+              "exact":    { "type": "string" },
+              "existing": { "type": "boolean" },
+              "any":      { "type": "boolean" },
+              "action":   { "type": "string", "enum": ["allow", "deny", "ask"] }
+            },
+            "required": ["action"]
+          }
+        },
+        "sink_conflict": {
+          "type": "string",
+          "enum": ["strictest", "first"],
+          "default": "strictest",
+          "description": "How to resolve when multiple sink_rules match a single path."
         }
       }
     }
@@ -792,6 +941,13 @@ def execute(args: dict) -> dict:
 - Never raise exceptions; catch them and return `{"error": str(e)}`.
 - The `SCHEMA` name must be unique across all loaded tools.
 - Use `APPROVAL = "ask"` for any tool that modifies system state.
+
+Output routing is **not** a tool concern. Tools always return their full
+result; whether that result reaches the model, the user's terminal, a
+file on disk, or a turn-scoped variable is decided per-call by the model
+via the `output` meta-arg (see *Output Routing* below). Your tool sees
+its own arguments verbatim — the harness strips `output` before
+invoking `execute()`.
 
 ---
 

@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     "requests",
     "jinja2",
+    "jmespath",
 ]
 
 [project.optional-dependencies]
