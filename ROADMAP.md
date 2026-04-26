@@ -11,6 +11,7 @@
 - [x] Prompt compliance bench with SQLite result storage
 - [x] Shell commands tool (`tools/shell.py`)
 - [x] `render_output` stub + bench cases
+- [x] Branching strategy — develop → staging → main with per-branch CI and Docker
 
 ## Backlog
 
@@ -22,18 +23,20 @@ Items ordered by priority. "Requires" lists hard blockers (✓ = already done).
 | 1 | `render_output` dispatch | output routing ✓, shell ✓ | Jinja sink, bench updates |
 | 2 | Backend ABC | `Backend` Protocol ✓ | OpenRouter backend |
 | 3 | OpenRouter backend | Backend ABC (#2) | — |
-| 4 | Session title computation | backend ✓, session ✓ | Status bar title field |
-| 5 | Tool approvals in web UI | approval system ✓, SSE ✓ | — |
-| 6 | Status bar — CLI + web | session title (#4) | Streaming thinking display |
-| 7 | Streaming thinking blocks | SSE ✓; status bar (#6) for CLI | — |
-| 8 | Tool toggles in web UI | web server ✓ | — |
-| 9 | Jinja template sink | `render_output` (#1), `$var` binding ✓ | — |
-| 10 | Agent configs | config ✓, memory ✓, approval ✓ | Skill support, subagents |
-| 11 | Skill support | agent configs (#10) | Subagent framework |
-| 12 | Subagent framework | session ✓, backends ✓, agent configs (#10), skills (#11) | — |
-| 13 | Semantic search | memory.db ✓ | — |
-| 14 | Bench: prompt-variant sweeping | bench ✓ | — |
-| 15 | Bench: flakiness report | bench ✓ | — |
+| 4 | Hooks framework | session ✓, tool system ✓ | Session title, git/file hooks |
+| 5 | Session title computation | hooks (#4), backend ✓ | Status bar title field |
+| 6 | MCP support | tool system ✓, Backend Protocol ✓ | External tool ecosystem |
+| 7 | Tool approvals in web UI | approval system ✓, SSE ✓ | — |
+| 8 | Status bar — CLI + web | session title (#5) | Streaming thinking display |
+| 9 | Streaming thinking blocks | SSE ✓; status bar (#8) for CLI | — |
+| 10 | Tool toggles in web UI | web server ✓ | — |
+| 11 | Jinja template sink | `render_output` (#1), `$var` binding ✓ | — |
+| 12 | Agent configs | config ✓, memory ✓, approval ✓ | Skill support, subagents |
+| 13 | Skill support | agent configs (#12) | Subagent framework |
+| 14 | Subagent framework | session ✓, backends ✓, agent configs (#12), skills (#13) | — |
+| 15 | Semantic search | memory.db ✓ | — |
+| 16 | Bench: prompt-variant sweeping | bench ✓ | — |
+| 17 | Bench: flakiness report | bench ✓ | — |
 
 ---
 
@@ -100,14 +103,130 @@ Config key: `"backend": "openrouter"` + `"openrouter_api_key"` + `"openrouter_mo
 
 ---
 
+## MCP (Model Context Protocol)
+
+Connect Nugget to external MCP servers so their tools are available to the model
+alongside built-in tools. MCP servers expose a standard tool-discovery and
+tool-call interface over stdio or HTTP/SSE.
+
+### Config
+
+```json
+"mcp_servers": [
+  {
+    "name": "filesystem",
+    "type": "stdio",
+    "command": "npx -y @modelcontextprotocol/server-filesystem /home/user/docs"
+  },
+  {
+    "name": "brave-search",
+    "type": "http",
+    "url": "http://localhost:3001/sse",
+    "headers": { "Authorization": "Bearer $BRAVE_API_KEY" }
+  }
+]
+```
+
+### Implementation
+
+- On startup, spawn each `stdio` server as a subprocess and perform the MCP
+  `initialize` + `tools/list` handshake.
+- Merge returned tool schemas into the tool registry under namespaced names
+  (`mcp__<server>__<tool>`). The model sees them alongside built-in tools with no
+  special handling needed.
+- Route `mcp__*` tool calls to the appropriate server via `tools/call`; return
+  the result through the existing tool executor / output sink pipeline.
+- Apply the same approval rules as built-in tools; `pre_tool` hooks fire for MCP
+  tools using the full namespaced name as the matcher target.
+- HTTP/SSE servers are connected lazily on first tool call.
+
+---
+
+## Hooks
+
+User-defined shell commands that execute at specific points in the session
+lifecycle. Defined in `config.json` under `"hooks"` (or in an agent config for
+per-agent hooks). All hooks receive a JSON payload on stdin and return optional
+JSON on stdout; exit code controls whether the hook blocks or modifies behaviour.
+
+### Protocol
+
+```
+stdin  → JSON event payload (see event schemas below)
+stdout → optional JSON response (additionalContext, decision, etc.)
+exit 0 → success; stdout JSON is parsed and applied
+exit 2 → blocking error; stderr message shown, action denied
+other  → non-blocking error; first stderr line shown to user
+```
+
+All events include `session_id`, `cwd`, and `hook_event` fields.
+
+### Events
+
+| Event | Trigger | Blocking | Notes |
+|-------|---------|----------|-------|
+| `on_session_start` | Session opens (new or resumed) | No | Inject context via `additionalContext` |
+| `on_session_end` | Session saves and exits | No | Observability / cleanup |
+| `on_message` | User submits a message | Yes | Can block or inject context; fires before model call |
+| `on_response` | Model finishes a turn | No | Full response text available |
+| `pre_tool` | Before a tool executes | Yes | Can allow / deny / modify args via `permissionDecision` + `updatedInput` |
+| `post_tool` | After a tool succeeds | No | Tool name, args, and result available |
+| `on_file_change` | Watched file created / modified / deleted | No | Path and change type; can inject context |
+| `on_git` | Git HEAD or index changes | No | Branch, commit hash, staged file list available |
+
+Hooks may be matched to a subset of events using a `matcher` field (tool name
+glob for `pre_tool`/`post_tool`, `new`/`resumed` for `on_session_start`, etc.).
+
+### Config format
+
+```json
+"hooks": [
+  {
+    "event": "on_message",
+    "command": "~/.config/nugget/hooks/title.sh",
+    "async": false
+  },
+  {
+    "event": "pre_tool",
+    "matcher": "shell",
+    "command": "~/.config/nugget/hooks/shell-guard.sh"
+  },
+  {
+    "event": "on_file_change",
+    "watch": ["~/project/src/**/*.py"],
+    "command": "~/.config/nugget/hooks/file-ctx.sh",
+    "async": true
+  },
+  {
+    "event": "on_git",
+    "watch": ".git/HEAD",
+    "command": "~/.config/nugget/hooks/git-ctx.sh",
+    "async": true
+  }
+]
+```
+
+`on_file_change` and `on_git` run a background watcher thread that polls (or uses
+`inotify` where available); changes inject an `additionalContext` message into the
+next turn rather than interrupting the current one.
+
+### Built-in: `on_git`
+
+Git context hook fires whenever `.git/HEAD` or `.git/index` changes. The JSON
+payload includes `branch`, `commit`, and `staged_files`. Can be used to
+automatically surface branch and diff context without any manual `/git status`
+invocations.
+
+---
+
 ## Sessions
 
 ### Session title computation
-After the first user message, fire a separate lightweight completion call with
-the message content and an instruction to produce a short topic title (≤5 words).
-Store the result as `"title"` in the session JSON. Display it in session lists,
-the status bar, and the web UI header. Use a fast model or the same backend with
-a one-shot prompt; don't block the main response.
+Implemented as a built-in `on_message` hook that fires on the first user message
+(`message_index == 0`). The hook fires a lightweight background completion call
+with the message content and an instruction to produce a ≤5-word topic title,
+then writes the result back to the session file as `"title"`. Does not block the
+main response. Displayed in session lists, the status bar, and the web UI header.
 
 ---
 
