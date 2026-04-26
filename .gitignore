@@ -28,5 +28,8 @@ docker/config/config.json
 .vscode/
 *.swp
 
+# Bench artifacts
+bench/bench.db
+
 # OS
 .DS_Store
