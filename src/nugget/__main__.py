@@ -6,6 +6,7 @@ Interactive or one-shot chat via a configurable local model backend.
 
 import argparse
 import sys
+from importlib.metadata import version as _pkg_version, PackageNotFoundError as _PNF
 
 from .config import Config
 from .backends import make_backend, BackendError
@@ -68,6 +69,12 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--system", metavar="PROMPT", help="Override system prompt for this run")
     p.add_argument("--max-tokens", type=int, metavar="N")
     p.add_argument("--temperature", type=float, metavar="F")
+
+    try:
+        _ver = _pkg_version("nugget")
+    except _PNF:
+        _ver = "unknown (package not installed)"
+    p.add_argument("--version", action="version", version=f"nugget {_ver}")
 
     return p
 

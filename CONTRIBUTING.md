@@ -87,3 +87,20 @@ Config lives at `~/.config/nugget/config.json` (created on first run). Relevant 
 | `thinking_effort` | `0` (0=off, 1–3=low/medium/high) |
 
 Full schema in `tool_docs/TOOL_SPEC.md`.
+
+## Releasing
+
+The version field in `pyproject.toml` is the single source of truth. There is no `__version__` in the source — the CLI reads the installed package version at runtime via `importlib.metadata`.
+
+**Steps to cut a release:**
+
+1. Bump `version` in `pyproject.toml` on a feature branch:
+   ```toml
+   version = "0.2.0"
+   ```
+2. Open and merge a PR to `main`. The PR template checklist will remind you.
+3. On merge, `release.yml` runs tests, then:
+   - Creates and pushes `v0.2.0` (skipped if that tag already exists)
+   - Builds and pushes to GHCR: `ghcr.io/<owner>/nugget:0.2.0` and `ghcr.io/<owner>/nugget:latest`
+
+Every push to `main` (release or not) also produces a SHA-tagged image: `ghcr.io/<owner>/nugget:<git-sha>`. The docker build is skipped if tests fail.
