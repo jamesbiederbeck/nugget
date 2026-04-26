@@ -97,7 +97,7 @@ The `backend` config key (or `--backend` flag) selects which model server to tal
 |---------|-------------|
 | `textgen` | text-generation-webui `/v1/completions` with Gemma 4 prompt format (default) |
 
-New backends live in `src/nugget/backends/`. Each one implements the `Backend` protocol: a `run()` method that takes messages, tool schemas, and a tool executor, and returns `(text, thinking, tool_exchanges)`.
+New backends live in `src/nugget/backends/`. Each one implements the `Backend` protocol: a `run()` method that takes messages, tool schemas, and a tool executor, and returns `(text, thinking, tool_exchanges, finish_reason)`.
 
 ## Docker
 
@@ -142,10 +142,5 @@ src/nugget/
 ```
 
 ## Roadmap
-- [x] Basic chat interface
-- [x] Tool calling framework
-- [x] Thinking (chain-of-thought)
-- [x] Session management (save, resume by ID, resume last)
-- [x] Swappable backends
-- [x] Pinned memories in system prompt
-- [ ] Semantic search over past conversations and memory
+
+See [ROADMAP.md](ROADMAP.md).
