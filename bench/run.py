@@ -8,6 +8,7 @@ Usage:
     python bench/run.py --run-name sweep_v1
     python bench/run.py --system-prompt bench/prompts/variant_01.j2   # phase 2
     python bench/run.py --db /tmp/other.db
+    python bench/run.py --mock-tools          # no real tool execution, fastest
 """
 
 import argparse
@@ -37,6 +38,11 @@ _BENCH_APPROVAL = {
     "default": "allow",
     "sink_rules": [{"any": True, "action": "allow"}],
 }
+
+# Raised from on_tool_call to abort the backend loop immediately after the
+# first tool call is captured. tool_calls_seen is already populated at raise time.
+class _StopAfterFirstCall(Exception):
+    pass
 
 
 # ── TSV loading ──────────────────────────────────────────────────────────────
@@ -132,10 +138,15 @@ def run_group(
     backend: TextgenBackend,
     cfg: Config,
     system_prompt: str,
+    mock_tools: bool = False,
 ) -> dict:
     """
     Runs the model once for the group's shared prompt, then evaluates every
     constraint row in the group. All rows must share the same prompt and tools.
+
+    With mock_tools=True the tool executor is stubbed and the backend loop is
+    aborted immediately after the first tool call is captured — no real tool
+    execution, no second completion round-trip.
     """
     first = group[0]
     tools_spec = first.get("tools", "*").strip()
@@ -149,22 +160,35 @@ def run_group(
 
     def on_tool_call(name: str, args: dict) -> None:
         tool_calls_seen.append({"name": name, "args": dict(args)})
+        if mock_tools:
+            raise _StopAfterFirstCall
 
     has_tools = bool(schemas)
     stop_strings = ["<turn|>", "<|tool_response>"] if has_tools else ["<turn|>"]
+
+    tool_executor = (
+        (lambda n, a: {"status": "ok", "result": "mocked"})
+        if mock_tools
+        else (lambda n, a: tool_registry.execute(n, a))
+    )
 
     t0 = time.perf_counter()
     try:
         text, thinking, _exchanges, finish_reason = backend.run(
             messages=[{"role": "user", "content": first["prompt"]}],
             tool_schemas=schemas,
-            tool_executor=lambda n, a: tool_registry.execute(n, a),
+            tool_executor=tool_executor,
             system_prompt=system_prompt,
             thinking_effort=cfg.thinking_effort,
             on_tool_call=on_tool_call,
             check_file_sink=approval_mod.check_file_sink,
             approval_config=_BENCH_APPROVAL,
         )
+        error = None
+    except _StopAfterFirstCall:
+        text = ""
+        thinking = None
+        finish_reason = None
         error = None
     except Exception as exc:
         text = ""
@@ -316,6 +340,9 @@ def main() -> None:
                         help="Only run prompt groups whose prompt_id matches this glob")
     parser.add_argument("--repeat", type=int, default=1, metavar="N",
                         help="Run each prompt N times (measures stability)")
+    parser.add_argument("--mock-tools", action="store_true",
+                        help="Stub tool execution and stop after the first tool call "
+                             "(no real I/O; captures model intent only)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print model response text per group")
     args = parser.parse_args()
@@ -374,7 +401,7 @@ def main() -> None:
         system_prompt_id = bench_db.upsert_system_prompt(conn, system_prompt)
 
         if args.repeat == 1:
-            gr = run_group(group, backend, cfg, system_prompt)
+            gr = run_group(group, backend, cfg, system_prompt, mock_tools=args.mock_tools)
             _persist(conn, gr, case_name_to_id, system_prompt_id, model_id, cfg, run_id)
             for r in gr["results"]:
                 total_cases += 1
@@ -384,7 +411,7 @@ def main() -> None:
                 print(f"  {DIM}response: {gr['text'][:120]!r}{RESET}")
         else:
             all_grs = [
-                run_group(group, backend, cfg, system_prompt)
+                run_group(group, backend, cfg, system_prompt, mock_tools=args.mock_tools)
                 for _ in range(args.repeat)
             ]
             for gr in all_grs:
