@@ -36,6 +36,16 @@ nugget -v --thinking "hard question"
 nugget-server --host 127.0.0.1 --port 8000
 ```
 
+## Branching strategy
+
+`develop` → `staging` → `main`
+
+- **`develop`**: experimental / AI-generated work; tests run on push, no Docker build
+- **`staging`**: integration testing; tests + `staging`-tagged Docker image on push
+- **`main`**: stable releases; full release pipeline (tests → tag → versioned Docker image)
+
+PRs flow `develop → staging → main`. Direct commits to `main` are for meta changes only.
+
 ## Architecture
 
 ### Request flow

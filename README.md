@@ -10,6 +10,14 @@ Also "gem" was already coined by the Gemma team, and "nugget" felt like a fun ex
 
 By default, we use a model from https://huggingface.co/collections/TrevorJS/gemma-4-uncensored. It's running locally, so why should it tell you no? Gemma 4 models in that collection have been [abliterated](https://huggingface.co/blog/mlabonne/abliteration) to remove the "refusal" activation from their vocabulary, making them more cooperative and less likely to refuse requests. You can use any model you like, but these are a good starting point. The `-E4B` variant is a smaller, faster model with good reasoning abilities.
 
+## Status
+
+| Branch | Tests |
+|--------|-------|
+| `main` | [![release](https://github.com/jamesbiederbeck/nugget/actions/workflows/release.yml/badge.svg)](https://github.com/jamesbiederbeck/nugget/actions/workflows/release.yml) |
+| `staging` | [![tests](https://github.com/jamesbiederbeck/nugget/actions/workflows/test.yml/badge.svg?branch=staging)](https://github.com/jamesbiederbeck/nugget/actions/workflows/test.yml) |
+| `develop` | [![tests](https://github.com/jamesbiederbeck/nugget/actions/workflows/test.yml/badge.svg?branch=develop)](https://github.com/jamesbiederbeck/nugget/actions/workflows/test.yml) |
+
 ## Requirements
 
 - Python 3.11+
@@ -18,7 +26,7 @@ By default, we use a model from https://huggingface.co/collections/TrevorJS/gemm
 ## Installation
 
 ```bash
-pip install -e .
+uv pip install -e .
 ```
 
 ## Usage

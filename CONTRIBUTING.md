@@ -14,6 +14,18 @@ uv pip install -e ".[web,dev]"
 
 You'll need a running [text-generation-webui](https://github.com/oobabooga/text-generation-webui) server at `http://127.0.0.1:5000` to run the full stack locally.
 
+## Branching strategy
+
+```
+develop  →  staging  →  main
+```
+
+- **`develop`** — AI-generated and experimental work lands here. Tests run on every push; no Docker image is built.
+- **`staging`** — Integration testing. Promote from `develop` via PR when a feature is ready to validate end-to-end. Tests run on push and a `staging`-tagged Docker image is published (`ghcr.io/<owner>/nugget:staging`).
+- **`main`** — Stable, production releases only. Promote from `staging` via PR. On merge, the release pipeline runs: tests gate a Docker build, and a version tag + versioned image are created if the version in `pyproject.toml` changed.
+
+PRs should flow `develop → staging` or `staging → main`. Direct commits to `main` are for meta changes (docs, version bumps) only.
+
 ## Running tests
 
 ```bash

@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
 
 permissions:
   contents: write
@@ -39,6 +39,7 @@ jobs:
 
       - name: Check if tag exists
         id: tag_check
+        if: github.ref_name == 'main'
         run: |
           if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
             echo "new=false" >> "$GITHUB_OUTPUT"
@@ -47,7 +48,7 @@ jobs:
           fi
 
       - name: Create tag
-        if: steps.tag_check.outputs.new == 'true'
+        if: github.ref_name == 'main' && steps.tag_check.outputs.new == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -70,10 +71,14 @@ jobs:
         run: |
           SHA_TAG="ghcr.io/${{ steps.owner.outputs.name }}/nugget:${{ github.sha }}"
           TAGS="$SHA_TAG"
-          if [[ "${{ steps.tag_check.outputs.new }}" == "true" ]]; then
-            VERSION="${{ steps.version.outputs.version }}"
-            TAGS="$TAGS,ghcr.io/${{ steps.owner.outputs.name }}/nugget:${VERSION}"
-            TAGS="$TAGS,ghcr.io/${{ steps.owner.outputs.name }}/nugget:latest"
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            if [[ "${{ steps.tag_check.outputs.new }}" == "true" ]]; then
+              VERSION="${{ steps.version.outputs.version }}"
+              TAGS="$TAGS,ghcr.io/${{ steps.owner.outputs.name }}/nugget:${VERSION}"
+              TAGS="$TAGS,ghcr.io/${{ steps.owner.outputs.name }}/nugget:latest"
+            fi
+          elif [[ "${{ github.ref_name }}" == "staging" ]]; then
+            TAGS="$TAGS,ghcr.io/${{ steps.owner.outputs.name }}/nugget:staging"
           fi
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
