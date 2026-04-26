@@ -1,0 +1,17 @@
+id	prompt_id	prompt	tools	constraint_type	constraint_value	target	notes
+ro_display_natural.name	ro_display_natural	Show me wallabag article 183	wallabag,render_output	regex	^render_output$	tool_call[0].name	natural "show me" — should use render_output
+ro_display_natural.tool_name	ro_display_natural	Show me wallabag article 183	wallabag,render_output	regex	^wallabag$	tool_call[0].args.tool_name	wrapped tool should be wallabag
+ro_display_natural.output	ro_display_natural	Show me wallabag article 183	wallabag,render_output	regex	^display	tool_call[0].args.output	should route to display
+ro_display_explicit.name	ro_display_explicit	Fetch wallabag article 183 and display it to me	wallabag,render_output	regex	^render_output$	tool_call[0].name	explicit "display" — should use render_output
+ro_display_explicit.tool_name	ro_display_explicit	Fetch wallabag article 183 and display it to me	wallabag,render_output	regex	^wallabag$	tool_call[0].args.tool_name	wrapped tool should be wallabag
+ro_display_explicit.output	ro_display_explicit	Fetch wallabag article 183 and display it to me	wallabag,render_output	regex	^display	tool_call[0].args.output	should route to display
+ro_shell_display.name	ro_shell_display	Run ls /tmp and show me the output	shell,render_output	regex	^render_output$	tool_call[0].name	shell display — should use render_output
+ro_shell_display.tool_name	ro_shell_display	Run ls /tmp and show me the output	shell,render_output	regex	^shell$	tool_call[0].args.tool_name	wrapped tool should be shell
+ro_shell_display.output	ro_shell_display	Run ls /tmp and show me the output	shell,render_output	regex	^display	tool_call[0].args.output	should route to display
+ro_file_explicit.name	ro_file_explicit	Fetch wallabag article 183 and save it to file:/tmp/nugget/bench.json	wallabag,render_output	regex	^render_output$	tool_call[0].name	file routing via render_output
+ro_file_explicit.tool_name	ro_file_explicit	Fetch wallabag article 183 and save it to file:/tmp/nugget/bench.json	wallabag,render_output	regex	^wallabag$	tool_call[0].args.tool_name	wrapped tool should be wallabag
+ro_file_explicit.output	ro_file_explicit	Fetch wallabag article 183 and save it to file:/tmp/nugget/bench.json	wallabag,render_output	regex	^file:	tool_call[0].args.output	should route to file:
+ro_no_routing.name	ro_no_routing	What is the title of wallabag article 183?	wallabag,render_output	regex	^wallabag$	tool_call[0].name	pure question — should call wallabag directly, not render_output
+ro_no_routing.output	ro_no_routing	What is the title of wallabag article 183?	wallabag,render_output	absent		tool_call[0].args.output	no output routing needed
+ro_calc_no_routing.name	ro_calc_no_routing	What is 2 to the power of 32?	calculator,render_output	regex	^calculator$	tool_call[0].name	pure calc — should not use render_output
+ro_calc_no_routing.output	ro_calc_no_routing	What is 2 to the power of 32?	calculator,render_output	absent		tool_call[0].args.output	no output routing needed
