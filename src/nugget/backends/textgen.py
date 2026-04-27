@@ -10,7 +10,7 @@ from typing import Any, Callable
 import jinja2
 import requests
 
-from . import BackendError
+from . import BackendError, Backend
 from ._routing import (
     _substitute_vars,
     _validate_sink,
@@ -230,7 +230,7 @@ def build_prompt(
 
 # ── HTTP client + tool loop ──────────────────────────────────────────────────
 
-class TextgenBackend:
+class TextgenBackend(Backend):
     def __init__(self, config):
         self.cfg = config
         self._session = requests.Session()

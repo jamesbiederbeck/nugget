@@ -77,11 +77,21 @@ Optionally add `APPROVAL = "allow"` / `"deny"` / `"ask"` (or a callable) to set 
 
 ## Adding a backend
 
-1. Implement the `Backend` protocol in `src/nugget/backends/my_backend.py`. The `run()` method signature:
+1. Implement the `Backend` ABC in `src/nugget/backends/my_backend.py`. The `run()` method signature:
 
    ```python
-   def run(self, messages, tools, tool_executor, system_prompt) -> (text, thinking, tool_exchanges):
+   def run(
+       self,
+       messages: list[dict],
+       tool_schemas: list[dict],
+       tool_executor: Callable[[str, dict], object],
+       system_prompt: str,
+       **kwargs,
+   ) -> tuple[str, str | None, list[dict], str | None]:
+       """Return (text, thinking, tool_exchanges, finish_reason)."""
    ```
+
+   The ABC and its full docstring live in `src/nugget/backends/__init__.py`.
 
 2. Add a branch to `make_backend()` in `src/nugget/backends/__init__.py`.
 
