@@ -36,6 +36,11 @@ class OpenRouterBackend(Backend):
     def __init__(self, config):
         self.cfg = config
         api_key = config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            raise ValueError(
+                "OpenRouter backend requires an API key. "
+                "Set 'openrouter_api_key' in config.json or the OPENROUTER_API_KEY environment variable."
+            )
         self._session = requests.Session()
         self._session.headers.update({
             "Content-Type": "application/json",
@@ -198,14 +203,14 @@ class OpenRouterBackend(Backend):
         if full_thinking and on_thinking:
             on_thinking(full_thinking)
 
-        # Convert buf → OpenAI tool_calls format
+        # Convert buf → OpenAI tool_calls format, preserving stream order via index
         tool_calls_raw = [
             {
                 "id": buf["id"],
                 "type": "function",
                 "function": {"name": buf["name"], "arguments": buf["args_str"]},
             }
-            for buf in sorted(tool_calls_buf.values(), key=lambda b: b["id"])
+            for _, buf in sorted(tool_calls_buf.items())
         ]
         return full_text, full_thinking, tool_calls_raw
 

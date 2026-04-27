@@ -296,6 +296,14 @@ def test_streaming_tool_call_delta_merge(mocker):
 def test_make_backend_openrouter():
     from nugget.backends import make_backend
     cfg = MagicMock()
-    cfg.get = lambda k, default=None: {"backend": "openrouter", "openrouter_api_key": "x"}.get(k, default)
+    cfg.get = lambda k, default=None: {"backend": "openrouter", "openrouter_api_key": "test-key"}.get(k, default)
     backend = make_backend(cfg)
     assert isinstance(backend, OpenRouterBackend)
+
+
+def test_init_raises_without_api_key():
+    cfg = MagicMock()
+    cfg.get = lambda k, default=None: {"openrouter_api_key": "", "openrouter_model": "x"}.get(k, default)
+    with patch.dict("os.environ", {"OPENROUTER_API_KEY": ""}, clear=False):
+        with pytest.raises(ValueError, match="API key"):
+            OpenRouterBackend(cfg)
