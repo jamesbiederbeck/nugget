@@ -23,6 +23,9 @@ DEFAULTS: dict[str, Any] = {
     "show_tool_responses": False,
     "show_system_prompt": False,
     "debug": False,
+    # OpenRouter backend config. api_key may also be set via OPENROUTER_API_KEY env var.
+    "openrouter_api_key": "",
+    "openrouter_model": "openai/gpt-4o-mini",
     # The "approval" section governs tool calls. Two additional *optional*
     # keys govern where tools with OUTPUT="file:<path>" may write:
     #

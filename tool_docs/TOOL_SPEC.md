@@ -3,7 +3,7 @@
 > **Repository:** [jamesbiederbeck/nugget](https://github.com/jamesbiederbeck/nugget)  
 > **Description:** A CLI chat interface for locally-hosted Gemma 4 models.  
 > **Language:** Python 3.11+ · **License:** MIT  
-> **Version:** 0.1.0
+> **Version:** 0.3.0
 
 ---
 
@@ -18,6 +18,9 @@
    - [shell](#shell)
    - [filebrowser](#filebrowser)
    - [memory](#memory)
+   - [wallabag](#wallabag)
+   - [notify](#notify)
+   - [render_output](#render_output)
 5. [Token Limits](#token-limits)
 6. [Approval Rules](#approval-rules)
 7. [Output Routing](#output-routing)
@@ -598,6 +601,115 @@ Persistent key-value store backed by SQLite at `~/.local/share/nugget/memory.db`
 
 ---
 
+### `wallabag`
+
+Manage a [Wallabag](https://wallabag.org) reading list. Requires environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `WALLABAG_URL` | Base URL of your Wallabag instance |
+| `WALLABAG_CLIENT_ID` | OAuth2 client ID |
+| `WALLABAG_CLIENT_SECRET` | OAuth2 client secret |
+| `WALLABAG_USERNAME` | Account username |
+| `WALLABAG_PASSWORD` | Account password |
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "wallabag",
+    "description": "Manage a Wallabag reading list. Operations: 'list', 'search', 'post', 'get'.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "operation": { "type": "string", "description": "One of: 'list', 'search', 'post', 'get'" },
+        "url":       { "type": "string", "description": "URL to save (required for 'post')" },
+        "query":     { "type": "string", "description": "Search term (required for 'search')" },
+        "tags":      { "type": "string", "description": "Comma-separated tags (used in 'post' and 'search')" },
+        "id":        { "type": "integer", "description": "Article ID (required for 'get')" },
+        "per_page":  { "type": "integer", "description": "Results to return for 'list'/'search' (default 10)" },
+        "max_chars": { "type": "integer", "description": "Max characters of article content for 'get' (default 2000)" }
+      },
+      "required": ["operation"]
+    }
+  }
+}
+```
+
+**Approval gate:** `allow`
+
+---
+
+### `notify`
+
+Send a push notification via [Gotify](https://gotify.net). Requires:
+
+| Variable | Description |
+|----------|-------------|
+| `GOTIFY_TOKEN` | Application token (required) |
+| `GOTIFY_URL` | Base URL of your Gotify server (default: `http://gotify`) |
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "notify",
+    "description": "Send a push notification via Gotify.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title":    { "type": "string", "description": "Notification title" },
+        "message":  { "type": "string", "description": "Notification body" },
+        "priority": { "type": "integer", "description": "Gotify priority 1–10 (default 5)" }
+      },
+      "required": ["title", "message"]
+    }
+  }
+}
+```
+
+**Approval gate:** `allow`
+
+---
+
+### `render_output`
+
+Call any registered tool and route its result to a display sink, file, or variable binding — instead of receiving the raw result inline.
+
+> **Note:** `render_output` calls the wrapped tool directly; the wrapped tool cannot itself use output routing or produce turn-variable bindings accessible from later tool calls.
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "render_output",
+    "description": "Call any tool and send its output somewhere.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "tool_name": { "type": "string", "description": "Name of the tool to call" },
+        "tool_args": { "type": "object", "description": "Arguments to pass to the tool" },
+        "output": {
+          "type": "string",
+          "description": "Where to send the result: 'display', 'display:<jmespath>', 'file:<path>', or '$name'. Defaults to 'display'."
+        }
+      },
+      "required": ["tool_name", "tool_args"]
+    }
+  }
+}
+```
+
+**Approval gate:** `allow` (approval for the *wrapped* tool's own gate is also checked)
+
+---
+
 ## Token Limits
 
 Token limits are governed by the loaded model and the `ctx_size` passed to the backend server.
@@ -813,7 +925,7 @@ Full JSON Schema for `~/.config/nugget/config.json`:
     "backend": {
       "type": "string",
       "default": "textgen",
-      "description": "Backend identifier. Currently only 'textgen' is available."
+      "description": "Backend identifier. Options: 'textgen' (default), 'openrouter'."
     },
     "api_url": {
       "type": "string",
@@ -953,30 +1065,28 @@ invoking `execute()`.
 
 ## Writing a Custom Backend
 
-Backends live in `src/nugget/backends/` and must implement the `Backend` protocol:
+Backends live in `src/nugget/backends/` and must implement the `Backend` ABC:
 
 ```python
 from nugget.backends import Backend
+from typing import Callable
 
-class MyBackend:
+class MyBackend(Backend):
     def run(
         self,
         messages: list[dict],
         tool_schemas: list[dict],
-        tool_executor: callable,
+        tool_executor: Callable[[str, dict], object],
         system_prompt: str,
-        thinking_effort: int = 0,
-        on_token: callable = None,
-        on_thinking: callable = None,
-        on_tool_call: callable = None,
-        on_tool_response: callable = None,
-        on_tool_denied: callable = None,
-    ) -> tuple[str, str, list]:
+        **kwargs,
+    ) -> tuple[str, str | None, list[dict], str | None]:
         """
         Returns:
-          text           — final assistant text
-          thinking       — raw chain-of-thought string (empty if disabled)
-          exchanges      — list of tool call/response dicts for session history
+          text           — final assistant text (may be empty)
+          thinking       — chain-of-thought string, or None
+          tool_exchanges — list of tool call/response dicts for session history
+          finish_reason  — terminal finish-reason string from the upstream API,
+                           e.g. "stop", "length", or None
         """
         ...
 ```

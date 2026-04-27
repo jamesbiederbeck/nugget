@@ -67,6 +67,9 @@ nugget -v "what time is it"
 | `shell` | Run shell commands (asks for approval) |
 | `filebrowser` | Read and list files |
 | `memory` | Persist notes across sessions; supports pinning to system prompt |
+| `wallabag` | Manage a Wallabag reading list (save, search, retrieve articles) |
+| `notify` | Send push notifications via Gotify |
+| `render_output` | Call any tool and route its result to display, file, or a variable |
 
 ```bash
 # Filter tools
@@ -104,8 +107,9 @@ The `backend` config key (or `--backend` flag) selects which model server to tal
 | Backend | Description |
 |---------|-------------|
 | `textgen` | text-generation-webui `/v1/completions` with Gemma 4 prompt format (default) |
+| `openrouter` | [OpenRouter](https://openrouter.ai) OpenAI-compatible API with native tool calling. Set `openrouter_api_key` in `config.json` or `OPENROUTER_API_KEY` env var. |
 
-New backends live in `src/nugget/backends/`. Each one implements the `Backend` protocol: a `run()` method that takes messages, tool schemas, and a tool executor, and returns `(text, thinking, tool_exchanges, finish_reason)`.
+New backends live in `src/nugget/backends/`. Each one subclasses the `Backend` ABC and implements a `run()` method that takes messages, tool schemas, and a tool executor, and returns `(text, thinking, tool_exchanges, finish_reason)`.
 
 ## Docker
 

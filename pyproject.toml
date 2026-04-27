@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nugget"
-version = "0.2.1"
+version = "0.3.0"
 description = "CLI chat interface for a locally-hosted model"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-mock"]
+dev = ["pytest>=8.0", "pytest-mock", "mypy>=1.10"]
 web = ["fastapi>=0.111", "uvicorn[standard]>=0.29"]
 
 [tool.setuptools.packages.find]
