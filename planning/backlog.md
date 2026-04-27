@@ -228,6 +228,37 @@ Vector index over `memory.db` rows and session message bodies. Surfaced as a new
 
 ---
 
+## Tool ergonomics (parallel track)
+
+### NUG-015 · `filebrowser cat` multi-path support · P2 · S · feature
+**Roadmap #:** —
+**Promoted from:** `planning/issue-1.md`
+
+Today `filebrowser`'s `cat` op takes a single `path: string`. Reading N files
+requires N separate tool calls, burning the 16-iteration loop budget and
+producing apparent flakiness when the model drops to partial reads.
+
+**Acceptance criteria:**
+- `cat` with `path: "a.txt"` returns the existing `{path, content, size}`
+  shape (back-compat).
+- `cat` with `path: ["a.txt", "b.txt"]` returns
+  `{results: {"a.txt": {content, size}, "b.txt": {content, size}}}` with
+  per-file errors slotted under their key as `{"error": "..."}`.
+- Schema's `path` field description updated to document both forms.
+- Total response capped at a configurable byte budget (default 256 KiB)
+  with truncation marked per-file; prevents one large file from blowing
+  the context window.
+- Tests in `tests/tools/test_filebrowser.py` covering: single-string
+  back-compat, list of two existing files, list with one missing file,
+  list exceeding byte budget.
+
+**Files likely touched:** `src/nugget/tools/filebrowser.py`,
+`tests/tools/test_filebrowser.py`.
+
+**Out of scope:** glob expansion (`*.py`), streaming or chunked reads.
+
+---
+
 ## Bench enhancements (parallel track)
 
 ### NUG-012 · Bench: prompt-variant sweeping · P3 · M · feature
