@@ -26,7 +26,14 @@ By default, we use a model from https://huggingface.co/collections/TrevorJS/gemm
 ## Installation
 
 ```bash
+# Development install (CLI only)
 uv pip install -e .
+
+# With web server support
+uv pip install -e ".[web]"
+
+# Install as a persistent tool (recommended for daily use)
+uv tool install ".[web]" --force
 ```
 
 ## Usage
@@ -54,22 +61,29 @@ nugget --list-sessions
 nugget --thinking "explain backpropagation"
 nugget --thinking-effort 3 "hard problem"
 
+# Override model (openrouter backend)
+nugget --model "anthropic/claude-3.5-sonnet"
+
 # Verbose (show thinking, tool calls, system prompt)
 nugget -v "what time is it"
 ```
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `calculator` | Evaluate math expressions |
-| `get_datetime` | Get current date/time in any timezone |
-| `shell` | Run shell commands (asks for approval) |
-| `filebrowser` | Read and list files |
-| `memory` | Persist notes across sessions; supports pinning to system prompt |
-| `wallabag` | Manage a Wallabag reading list (save, search, retrieve articles) |
-| `notify` | Send push notifications via Gotify |
-| `render_output` | Call any tool and route its result to display, file, or a variable |
+| Tool | Description | Approval |
+|------|-------------|----------|
+| `calculator` | Evaluate math expressions | allow |
+| `get_datetime` | Get current date/time in any timezone | allow |
+| `shell` | Run shell commands | ask |
+| `filebrowser` | Browse, read, write, edit, and manage local files | read=allow, write=ask |
+| `grep_search` | Search files with ripgrep | allow |
+| `http_fetch` | Fetch URLs (GET/HEAD/POST/PUT/DELETE) | GET/HEAD=allow, mutating=ask |
+| `jq` | Apply JMESPath queries to JSON or `$var` bindings | allow |
+| `tasks` | SQLite-backed task list (add, list, complete, delete) | delete=ask, others=allow |
+| `memory` | Persist notes across sessions; supports pinning to system prompt | delete=ask, others=allow |
+| `wallabag` | Manage a Wallabag reading list (save, search, retrieve articles) | allow |
+| `notify` | Send push notifications via Gotify | allow |
+| `render_output` | Call any tool and route its result to display, file, or a variable | allow |
 
 ```bash
 # Filter tools
@@ -90,15 +104,7 @@ store key="my name" value="Victor" pin=true
 
 Config lives at `~/.config/nugget/config.json`. Created automatically on first run.
 
-| Key | Default |
-|-----|---------|
-| `backend` | `"textgen"` |
-| `api_url` | `"http://127.0.0.1:5000"` |
-| `model` | `"gemma-4-E4B-it-uncensored-Q4_K_M.gguf"` |
-| `temperature` | `0.7` |
-| `max_tokens` | `2048` |
-| `thinking_effort` | `0` (0=off, 1=low, 2=medium, 3=high) |
-| `sessions_dir` | `~/.local/share/nugget/sessions` |
+See [`tool_docs/CONFIG.md`](tool_docs/CONFIG.md) for annotated examples and the full key reference.
 
 ## Backends
 
@@ -107,7 +113,12 @@ The `backend` config key (or `--backend` flag) selects which model server to tal
 | Backend | Description |
 |---------|-------------|
 | `textgen` | text-generation-webui `/v1/completions` with Gemma 4 prompt format (default) |
-| `openrouter` | [OpenRouter](https://openrouter.ai) OpenAI-compatible API with native tool calling. Set `openrouter_api_key` in `config.json` or `OPENROUTER_API_KEY` env var. |
+| `openrouter` | [OpenRouter](https://openrouter.ai) OpenAI-compatible API with native tool calling. Set `openrouter_api_key` in `config.json` or `OPENROUTER_API_KEY` env var. Use `openrouter_model` (or `--model`) to choose the model. |
+
+```bash
+# Run server with a specific backend and model
+nugget-server --backend openrouter --model anthropic/claude-3.5-sonnet
+```
 
 New backends live in `src/nugget/backends/`. Each one subclasses the `Backend` ABC and implements a `run()` method that takes messages, tool schemas, and a tool executor, and returns `(text, thinking, tool_exchanges, finish_reason)`.
 
@@ -125,25 +136,31 @@ docker run --network host nugget -n "what is 2+2"
 
 ## Approval
 
-Tool calls are governed by approval rules. By default, `shell` prompts before running and `memory` delete operations ask for confirmation; everything else is auto-allowed. Rules can be customized in `config.json`:
+Tool calls are governed by approval rules. The default policy: `shell` always asks; `filebrowser` write/edit ops ask; `http_fetch` mutating methods (POST/PUT/DELETE) ask; `memory` and `tasks` delete ops ask; everything else is auto-allowed.
+
+Override rules in `config.json`:
 
 ```json
 "approval": {
   "default": "allow",
   "rules": [
-    { "tool": "shell", "action": "ask" },
-    { "tool": "memory", "args": { "operation": "delete" }, "action": "ask" }
+    { "tool": "shell", "action": "deny" },
+    { "tool": "http_fetch", "args": { "method": "GET" }, "action": "allow" },
+    { "tool": "http_fetch", "action": "ask" }
   ]
 }
 ```
+
+See [`tool_docs/CONFIG.md`](tool_docs/CONFIG.md) for the full approval and file-sink rule reference.
 
 ## Project layout
 
 ```
 src/nugget/
   backends/
-    __init__.py       # Backend protocol + make_backend() factory
+    __init__.py       # Backend ABC + make_backend() factory
     textgen.py        # text-generation-webui + Gemma 4 prompt format
+    openrouter.py     # OpenRouter OpenAI-compatible backend
   tools/              # Auto-discovered tool modules
   templates/
     system.j2         # System prompt template
@@ -151,6 +168,10 @@ src/nugget/
   session.py
   display.py
   approval.py
+tool_docs/
+  TOOL_SPEC.md        # Full API + tool schema reference
+  CONFIG.md           # Config key reference with examples
+  SUBAGENT_SPEC.md    # Subagent framework spec (v0.4)
 ```
 
 ## Roadmap

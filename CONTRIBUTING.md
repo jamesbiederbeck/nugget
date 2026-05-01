@@ -42,14 +42,21 @@ uv run pytest tests/test_session.py::test_function_name -v
 
 ```
 src/nugget/
-  backends/         # Backend protocol + make_backend() factory
-  tools/            # Auto-discovered tool modules
+  backends/
+    __init__.py     # Backend ABC + make_backend() factory
+    textgen.py      # text-generation-webui + Gemma 4 prompt format
+    openrouter.py   # OpenRouter OpenAI-compatible backend
+  tools/            # Auto-discovered tool modules (add new tools here)
   templates/
     system.j2       # System prompt template
   config.py
   session.py
   display.py
   approval.py
+tool_docs/
+  TOOL_SPEC.md      # Full API + tool schema reference
+  CONFIG.md         # Config key reference with examples
+  SUBAGENT_SPEC.md  # Subagent framework spec (v0.4)
 ```
 
 ## Architecture
@@ -97,18 +104,7 @@ Optionally add `APPROVAL = "allow"` / `"deny"` / `"ask"` (or a callable) to set 
 
 ## Configuration
 
-Config lives at `~/.config/nugget/config.json` (created on first run). Relevant keys:
-
-| Key | Default |
-|-----|---------|
-| `backend` | `"textgen"` |
-| `api_url` | `"http://127.0.0.1:5000"` |
-| `model` | `"gemma-4-E4B-it-uncensored-Q4_K_M.gguf"` |
-| `temperature` | `0.7` |
-| `max_tokens` | `2048` |
-| `thinking_effort` | `0` (0=off, 1–3=low/medium/high) |
-
-Full schema in `tool_docs/TOOL_SPEC.md`.
+Config lives at `~/.config/nugget/config.json` (created on first run). See [`tool_docs/CONFIG.md`](tool_docs/CONFIG.md) for the full key reference and annotated examples. The JSON Schema lives in `tool_docs/TOOL_SPEC.md § Configuration Schema`.
 
 ## Releasing
 
