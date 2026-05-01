@@ -28,6 +28,21 @@ def _load_all() -> None:
             _gates[name] = getattr(mod, "APPROVAL", None)
 
 
+def reload() -> list[str]:
+    _registry.clear()
+    _gates.clear()
+    pkg_dir = Path(__file__).parent
+    for info in pkgutil.iter_modules([str(pkg_dir)]):
+        mod_name = f"{__name__}.{info.name}"
+        mod = importlib.import_module(mod_name)
+        importlib.reload(mod)
+        if hasattr(mod, "SCHEMA") and hasattr(mod, "execute"):
+            name = mod.SCHEMA["function"]["name"]
+            _registry[name] = (mod.SCHEMA, mod.execute)
+            _gates[name] = getattr(mod, "APPROVAL", None)
+    return sorted(_registry.keys())
+
+
 def all_tools() -> dict[str, tuple[dict, Callable]]:
     _load_all()
     return dict(_registry)

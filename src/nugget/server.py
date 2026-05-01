@@ -194,6 +194,12 @@ async def chat(session_id: str, req: ChatRequest):
     )
 
 
+@app.post("/api/tools/reload")
+async def reload_tools():
+    tools = tool_registry.reload()
+    return {"tools": tools}
+
+
 # ── Static frontend ───────────────────────────────────────────────────────────
 
 _WEB_DIR = Path(__file__).parent / "web"
