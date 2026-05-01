@@ -1,37 +1,36 @@
 # Nugget — next sprint
 
-**Window:** 2026-04-26 → ~2026-05-10 (two weeks)
-**Target release:** v0.3 (`Routing & backends complete`)
+**Window:** 2026-04-29 → ~2026-05-13 (two weeks)
+**Target release:** v0.4 (`Subagent MVP`)
 **Working branch convention:** `develop` first → PR to `staging` → PR to `main` (per `CLAUDE.md`).
 
-This file picks the four highest-priority tickets from `backlog.md` that are
-ready to start *today* and adds enough scaffolding (file pointers, first-step
-hints, smoke-test recipes) that a contributor can open the file, read down
-once, and start typing.
-
-The tickets are ordered to minimise blocking. NUG-001 is the keystone for v0.3
-and should land first. NUG-002 is a small refactor that NUG-003 wants in place.
-NUG-010 is parallelisable with everything and is a good "between PRs" filler.
+The previous sprint (v0.3 — Routing & backends) shipped on 2026-04-26 with
+NUG-001/002/003/010 merged and four bonus tools landing alongside (`grep_search`,
+`http_fetch`, `jq`, `tasks`; 298 tests passing). This sprint pivots to the
+headline new feature requested for v0.4: **subagents**.
 
 ---
 
 ## Sprint goal
 
-Ship v0.3 with output routing actually executing (today it raises
-`NotImplementedError`), a second backend proving the abstraction, and
-`CONTRIBUTING.md` accurate enough that the next contributor doesn't bounce
-off stale signatures.
+Ship a working subagent primitive: a `spawn_agent` tool that lets the model
+delegate a focused sub-task to a child Nugget session, seeded with
+parent-supplied context (typically a large tool result bound to a `$var`),
+with a constrained tool allowlist, and a result that flows back through the
+existing output-routing machinery. Bench coverage lands in the same release
+so subagent behaviour is measured, not hoped for.
 
 **Definition of done for the sprint:**
-- `nugget` user can call `render_output(...)` from the model and get
-  `display`, `display:<jmespath>`, `file:<path>`, and `$var` sinks working.
-- `nugget --backend openrouter` runs against a real OpenRouter API key and
-  passes the same `bench/cases/render_output.tsv` cases (intent-only OK if
-  end-to-end is too slow for CI).
-- `pyproject.toml` bumped to `0.3.0` on `main`; release pipeline produces
-  `ghcr.io/<owner>/nugget:0.3.0` and `:latest`.
-- All existing 213 tests still pass; net test count grows by ≥ 12 (NUG-001
-  approval-deny, sink matrix; NUG-003 mock matrix).
+- `spawn_agent` callable end-to-end: parent → child → result → parent.
+- All eight open questions in `tool_docs/SUBAGENT_SPEC.md` §8 resolved and
+  captured in the spec.
+- `bench/cases/subagent.tsv` passes ≥80% in mock mode.
+- `tool_docs/TOOL_SPEC.md` updated with `spawn_agent` plus the four v0.3
+  bonus tools (`grep_search`, `http_fetch`, `jq`, `tasks`).
+- `pyproject.toml` bumped to `0.4.0` on `main`; release pipeline ships
+  `ghcr.io/<owner>/nugget:0.4.0` and `:latest`.
+- All current 298 tests still pass; net test count grows by ≥ 20
+  (NUG-015 unit + NUG-016 e2e/integration).
 
 ---
 
@@ -39,251 +38,164 @@ off stale signatures.
 
 | Order | Ticket  | Why now |
 |-------|---------|---------|
-| 1     | NUG-001 | Single biggest user-facing gap. Bench cases already exist; ships value the day it lands. |
-| 2     | NUG-002 | Tiny but locks the contract before NUG-003 is written against it. Run while NUG-001 is in review. |
-| 3     | NUG-003 | Validates the backend abstraction and unlocks running nugget without a local model server. |
-| 4     | NUG-010 | Pure docs. Land any time. Best done last in the sprint so it captures NUG-002's signature change. |
-
-NUG-005 (Jinja template sink) is also in v0.3 but is gated on NUG-001 and is
-better picked up at the start of the next sprint, after NUG-001 has had a
-week of real use.
+| 1     | NUG-015 | The whole point of v0.4. Spec is in `tool_docs/SUBAGENT_SPEC.md`; implementation should land before bench cases that depend on it. |
+| 2     | NUG-016 | Lock subagent behaviour into the bench so future regressions are visible. Best done in the same release as NUG-015 because the API and edge cases are freshest in mind. |
+| 3     | NUG-017 | Pure docs. Bundle in the v0.4 release commit so `TOOL_SPEC.md` ships consistent with the source for both v0.3 bonus tools AND `spawn_agent`. |
 
 ---
 
-## NUG-001 · Implement `render_output` dispatch · P0 · M
+## NUG-015 · `spawn_agent` tool — subagent MVP · P0 · L
 
 ### One-line goal
-Make `render_output(tool_name, tool_args, output=...)` actually call the
-wrapped tool and route its result through the existing per-call sink machinery.
+Let the model spawn a child Nugget session with a focused system prompt,
+explicit context, and a constrained tool allowlist; return a result dict
+that routes through the existing sink machinery.
 
 ### Where the work happens
-- **Edit:** `src/nugget/tools/render_output.py` (currently 34 lines, the
-  `execute()` body just raises).
-- **Edit:** `src/nugget/backends/textgen.py` — `_route_tool_result()` is the
-  function the new code needs access to. Either expose it as a module-level
-  helper or split the routing logic into `src/nugget/backends/_routing.py`
-  and import from both places.
-- **Add:** `tests/tools/test_render_output.py`.
+- **Add:** `src/nugget/tools/spawn_agent.py`
+- **Add:** `src/nugget/subagent.py` (helper module: prompt assembly, context
+  rendering, recursion-depth thread-local)
+- **Edit:** `src/nugget/config.py` — `Config.DEFAULTS` gains the `subagent`
+  block from spec §6
+- **Edit:** `src/nugget/session.py` — add `Session.load_subagents(parent_id)`,
+  add per-call subagent JSON persistence helper
+- **Edit:** `src/nugget/server.py` — emit `subagent_call` and `subagent_done`
+  SSE events
+- **Possibly edit:** `src/nugget/backends/_routing.py` — only if context-var
+  resolution wants the same `bindings` lookup the sink machinery already does
+- **Edit:** `tool_docs/TOOL_SPEC.md` — new tool entry
+- **Edit:** `tool_docs/SUBAGENT_SPEC.md` — fill in §8 decisions
+- **Add:** `tests/tools/test_spawn_agent.py`, `tests/test_subagent.py`
+
+### Required reading before starting
+1. `tool_docs/SUBAGENT_SPEC.md` — full spec, especially §3 (API), §4 (return
+   propagation), §5 (approval), §8 (open questions you must resolve).
+2. `src/nugget/backends/_routing.py` — the `bindings` dict and sink-validation
+   helpers you'll reuse.
+3. `src/nugget/tools/render_output.py` — the existing precedent for
+   "tool that calls other tools".
 
 ### First step
-1. Read `src/nugget/backends/textgen.py` end-to-end and locate
-   `_route_tool_result`, `_validate_sink`, and the `bindings` dict that gets
-   passed through the tool loop.
-2. Decide: hoist the routing helpers into `src/nugget/backends/_routing.py`
-   (recommended — NUG-003 will want them too) or keep them in `textgen.py`
-   and just expose them.
-3. Refactor in a separate commit before any behaviour change. Run the test
-   suite. It should be green with no logic changes.
-4. Wire `render_output.execute()` to take `(tool_name, tool_args, output)`,
-   call `tools.execute(tool_name, tool_args)`, then route via the helper.
-5. Approval: leave `APPROVAL = "allow"` on `render_output` itself — the
-   wrapped tool's gate is consulted inside `tools.execute()` already.
+1. Read the spec end-to-end. Decide whether to resolve `context_vars` in the
+   tool's `execute()` (means the tool needs harness access — currently tools
+   are pure) or in the harness layer before `execute()` is called (cleaner;
+   add a `_resolve_subagent_args` step in the routing helpers).
+2. Choose backend reuse strategy: spec recommends sharing the parent's
+   `Backend` instance; revisit if there is hidden mutable state.
+3. Stub `tools/spawn_agent.py` with the SCHEMA. Stand up
+   `src/nugget/subagent.py` with just the system-prompt assembly. Get one
+   end-to-end test passing (pure-reasoning child, no tools, mocked backend).
+4. Layer in: tool allowlist, approval pipeline reuse, recursion-depth guard,
+   per-call persistence, web SSE events, output-routing pass-through.
 
-### Acceptance criteria (copy from `backlog.md#NUG-001`)
-- `render_output` looks up `tool_name` in the registry, calls its
-  `execute()`, and routes the result through the per-call sink machinery.
-- `output` arg is optional; absent means `display`.
-- Sink validation reuses `_validate_sink()` (allowed forms: `display`,
-  `display:<jmespath>`, `file:<path>`, `$var`, `$var.<jmespath>`).
-- Error stubs match the existing routing error shape:
-  `{"status": "error", "reason": "..."}`.
-- Approval is checked for the *wrapped* tool, not for `render_output`.
-- `bench/cases/render_output.tsv` runs end-to-end (no `--mock-tools`) and
-  matches or beats the current mock-mode pass rate.
-- Unit tests cover: display sink, file sink (with file-sink approval), `$var`
-  sink + later substitution, unknown wrapped tool, approval-denied wrapped
-  tool, missing required arg.
+### Acceptance criteria (copy from `backlog.md#NUG-015`)
+See backlog. Eleven acceptance criteria; the load-bearing ones are
+allowlist-before-approval, depth cap, per-call persistence path, and result
+flowing through `output:` sinks unchanged.
 
 ### Smoke test
 ```bash
-uv run pytest tests/tools/test_render_output.py -v
-nugget "use render_output to call calculator with expression='2+2' and put the answer in the user-facing display"
-uv run python bench/run.py --filter render_output --repeat 3
+uv run pytest tests/tools/test_spawn_agent.py tests/test_subagent.py -v
+nugget "search this repo for 'TODO' with grep_search and bind the result to \$todos. Then spawn_agent with task='which file has the most TODOs?' and context_vars=['todos']."
 ```
 
-### Open question to settle in PR
-Does `render_output` execute the wrapped tool inside the harness's own tool
-loop (so the wrapped tool can itself emit `output:` bindings) or does it
-call `tools.execute()` directly and then route? **Recommendation:** the
-latter (simpler, doesn't allow recursive routing). Document the limitation
-in the tool's `description` field.
+The web smoke test (verify `subagent_call` / `subagent_done` events appear in
+the SSE stream) requires an open browser tab on `nugget-server`; leave it as
+a manual step in the PR description.
+
+### Open questions to settle in PR (must update spec §8)
+1. Backend reuse vs fresh instance.
+2. Token-cost roll-up to parent.
+3. Memory-tool / pinned-memory inheritance for the child.
+4. Concurrency — keep MVP sequential.
+5. Skill-arg shape (define now even if semantics deferred).
+6. Truncation vs reject vs summarise on context overflow.
 
 ### Estimate
-Half a day if the routing helper hoist is clean. A full day if it surfaces
-hidden coupling.
+1.5–2 days. The recursion guard and per-call persistence are each ~2–3
+hours; output-routing pass-through wants a careful test pass.
 
 ---
 
-## NUG-002 · Promote `Backend` Protocol to ABC · P1 · S
+## NUG-016 · Subagent bench tests · P1 · M
 
 ### One-line goal
-Lock the `Backend.run()` 4-tuple return into a typed contract so NUG-003
-can implement against it without guessing.
+Lock subagent behaviour into the bench so model-side regressions surface
+through the existing pass-rate dashboard, not as field bug reports.
 
 ### Where the work happens
-- **Edit:** `src/nugget/backends/__init__.py` — the `Backend` Protocol.
-- **Edit:** `src/nugget/backends/textgen.py` — only the class decorator/base.
-- **Edit:** `CONTRIBUTING.md` — "Adding a backend" section.
-
-### First step
-Read the current `Backend` Protocol and `make_backend()` in
-`src/nugget/backends/__init__.py`. Decide: convert to `abc.ABC` (loses
-duck-typing, gains `isinstance()` and runtime enforcement of method
-existence) or keep as Protocol but add the full typed signature. Either is
-fine; ABC is more conventional for Python projects of this size.
-
-### Acceptance criteria (copy from `backlog.md#NUG-002`)
-- `Backend` becomes an `abc.ABC` (or fully-typed Protocol — pick one).
-- `run()` signature matches the textgen return: `tuple[str, str | None,
-  list[dict], str | None]`.
-- `make_backend()` return type annotation is the ABC/Protocol, not bare
-  `Backend`.
-- Type-check pass with `mypy` or `pyright` against `src/nugget/backends/`.
-- All existing tests pass.
-- The contract is documented once in the ABC docstring and referenced from
-  `CONTRIBUTING.md`.
-
-### Suggested addition for this ticket
-Add `mypy` (or `pyright`) as a dev-extra in `pyproject.toml`. Not strictly
-required for AC, but the ticket loses half its value without a type
-checker actually being run. One line in the dev extras and a one-line
-`mypy.ini` is enough.
-
-### Smoke test
-```bash
-uv run pytest -v
-uv run mypy src/nugget/backends/
-```
-
-### Estimate
-Two to four hours.
-
----
-
-## NUG-003 · OpenRouter backend · P1 · M
-
-### One-line goal
-A second backend that talks to OpenRouter's `/v1/chat/completions` so
-nugget runs without a local text-generation-webui instance.
-
-### Where the work happens
-- **Add:** `src/nugget/backends/openrouter.py`.
-- **Edit:** `src/nugget/backends/__init__.py` — add `"openrouter"` branch in
-  `make_backend()`.
-- **Edit:** `src/nugget/config.py` — `DEFAULTS` gains `openrouter_api_key`,
-  `openrouter_model`.
-- **Add:** `tests/backends/test_openrouter.py` — mock `requests` with
-  `pytest-mock`.
-- **Edit:** `README.md`, `tool_docs/TOOL_SPEC.md` — backends table.
+- **Add:** `bench/cases/subagent.tsv`
+- **Add:** `bench/fixtures/mock_grep.py` (deterministic large payload for
+  distillation cases)
+- **Add:** `tests/test_subagent_e2e.py`
+- **Edit:** `bench/run.py` only if a constraint type for nested-arg paths
+  (`tool_call[0].args.context_vars[0]`) doesn't already exist
+- **Edit:** `bench/erd.md`, `bench/README.md`
 
 ### Pre-flight
-1. Get an OpenRouter API key (or a test key) into your shell:
-   `export OPENROUTER_API_KEY=sk-or-...`.
-2. Skim two pages of OpenRouter docs:
-   `https://openrouter.ai/docs#chat-completions` and the streaming /
-   tool-use sections. The API is OpenAI-compatible; the surprises are
-   around `reasoning_content`, the `HTTP-Referer` header, and the
-   tool-call delta-merge format.
-3. Read `src/nugget/backends/textgen.py` end-to-end so you know what
-   responsibility belongs to the backend vs the harness.
+1. Confirm `bench/run.py` constraint engine supports paths into nested
+   tool-call args. If not, this ticket grows by half a day.
+2. Land NUG-015 first (this ticket targets its API).
 
 ### First step
-Write `tests/backends/test_openrouter.py` first, even just with one happy-
-path test using `pytest-mock`. The tests will pin down the integration
-points (config keys, message format, tool-call shape) and force you to
-think about the SSE delta merge before writing the code. Then implement
-the backend module to make the test pass.
+Wire one bench case — a distillation case with a mocked tool payload — and
+get it passing in mock mode. Use it as the template for the rest.
 
-### Acceptance criteria (copy from `backlog.md#NUG-003`)
-- New `src/nugget/backends/openrouter.py` implements the `Backend`
-  ABC/Protocol from NUG-002.
-- Config keys: `"backend": "openrouter"`, `"openrouter_api_key"` (or env
-  `OPENROUTER_API_KEY`), `"openrouter_model"`.
-- `make_backend()` recognises `"openrouter"`.
-- Tool calling uses native OpenAI `tools` + `tool_calls` fields. Tool loop
-  runs at the chat-completions level: model returns `tool_calls`, harness
-  executes, appends `role: tool` messages, recurses up to 16 times.
-- Streaming: SSE deltas → `on_token`. Tool-call args assembled across
-  deltas (OpenAI streams them as a partial-JSON string per tool call;
-  merge by `tool_call.index`).
-- Output routing (`output` meta-arg) works identically to `textgen`. Reuse
-  the helpers hoisted in NUG-001.
-- Thinking: capture `reasoning_content` from delta or final message and
-  emit via `on_thinking`.
-- Tests cover: simple completion, tool call → result → final, multi-tool
-  loop, sink routing pass-through, errors (401, 429, network).
-- README and TOOL_SPEC tables list the new backend with its config keys.
+### Acceptance criteria
+See `backlog.md#NUG-016`. The four case families (distillation, allowlist,
+depth-cap, output-routing) are required.
 
 ### Smoke test
 ```bash
-uv run pytest tests/backends/test_openrouter.py -v
-nugget --backend openrouter "what's 2+2?  use the calculator tool."
-nugget --backend openrouter "fetch a wallabag article and summarise it"  # tool loop
-uv run python bench/run.py --filter render_output --backend openrouter
+uv run python bench/run.py --filter subagent --repeat 3
+uv run pytest tests/test_subagent_e2e.py -v
 ```
 
-### Out of scope
-Multimodal input, OpenRouter-specific rate-limit retry logic (surface the
-error message and let the user retry).
-
 ### Estimate
-One full day. The streaming tool-call delta-merge is the time sink —
-budget half the day for that alone.
+Half a day to one full day. Bench-engine extension (if needed) is the swing
+factor.
 
 ---
 
-## NUG-010 · Doc-drift cleanup · P1 · S
+## NUG-017 · Tool docs catch-up · P1 · S
 
 ### One-line goal
-Three known mismatches between docs and code, all small. Best fixed at the
-end of the sprint because NUG-002 will change one of them again.
+`tool_docs/TOOL_SPEC.md` and `README.md` still list the original eight
+tools. Add `grep_search`, `http_fetch`, `jq`, `tasks` (shipped with v0.3)
+plus `spawn_agent` (this sprint).
 
 ### Where the work happens
-- **Edit:** `tool_docs/TOOL_SPEC.md` — version line, `Backend.run()`
-  example signature, "Built-in Tools" section.
-- **Edit:** `CONTRIBUTING.md` — "Adding a backend" signature.
-- **Edit:** `README.md` — tools table.
+- **Edit:** `tool_docs/TOOL_SPEC.md` (Built-in Tools, ToC)
+- **Edit:** `README.md` (tools table)
 
 ### First step
-Open `tool_docs/TOOL_SPEC.md` and search for `Version: 0.1.0`,
-`(text, thinking, tool_exchanges)`, and the existing tools table. Fix all
-three in one pass. Move on to `CONTRIBUTING.md` for the same signature
-fix. Then add `wallabag`, `notify`, `render_output` to the README tools
-table — one line each, link to its source file.
+Open `tool_docs/TOOL_SPEC.md`, jump to "Built-in Tools" section, drop in five
+new entries following the existing format. Update the ToC. Then sync the
+README tools table.
 
-### Acceptance criteria (copy from `backlog.md#NUG-010`)
-- `tool_docs/TOOL_SPEC.md` version line matches `pyproject.toml` (or is
-  removed; pyproject is authoritative).
-- `CONTRIBUTING.md` "Adding a backend" shows `Backend.run()` returning a
-  4-tuple `(text, thinking, tool_exchanges, finish_reason)`.
-- `tool_docs/TOOL_SPEC.md` "Writing a Custom Backend" example fixed too.
-- README tools table includes `wallabag`, `notify`, `render_output` (or a
-  note that some tools require env config and are off by default).
-- TOOL_SPEC "Built-in Tools" gains `wallabag` and `notify` entries with
-  schemas, env vars, approval gates.
+### Acceptance criteria
+See `backlog.md#NUG-017`.
 
 ### Smoke test
 ```bash
-grep -n "tool_exchanges" tool_docs/TOOL_SPEC.md CONTRIBUTING.md
-grep -n "Version:" tool_docs/TOOL_SPEC.md
-grep -n "wallabag\|gotify\|render_output" README.md
+grep -c "^### " tool_docs/TOOL_SPEC.md   # should be at least +5 vs before
+grep -E "grep_search|http_fetch|jq|tasks|spawn_agent" README.md
 ```
-All three should now agree with the code.
 
 ### Estimate
-One to two hours. Prefer to bundle in the same PR as the version bump to
-0.3.0 so the release commit is self-consistent.
+1–2 hours. Bundle in the v0.4 release commit.
 
 ---
 
 ## What is NOT in this sprint
 
-- **NUG-005 (Jinja template sink):** v0.3 candidate but blocked on
-  NUG-001's routing helper hoist landing. Pull in next sprint.
-- **NUG-004, 007, 008, 009, 011 (web UI work):** v0.4. Don't bleed scope.
-- **NUG-006, 014:** v0.5. Each needs design ratification first.
-- **NUG-012, 013 (bench):** parallel track. Pick up if a contributor wants
-  a self-contained afternoon ticket; otherwise leave for v0.4.
+- **NUG-005 (Jinja template sink):** still on the bench. Pull in v0.4.1 if
+  there's contributor bandwidth, otherwise v0.5.
+- **NUG-004, 007, 008, 009, 011 (web UI parity):** v0.5. Don't bleed scope.
+- **NUG-006, 014 (session intelligence):** v0.6. Each needs a design round
+  first.
+- **Skills (#13), agent configs (#12):** still design-pending. NUG-015 is
+  explicitly designed not to depend on either.
 
 ---
 
@@ -291,22 +203,26 @@ One to two hours. Prefer to bundle in the same PR as the version bump to
 
 | Risk | Mitigation |
 |------|------------|
-| NUG-001 routing-helper hoist surfaces hidden coupling in `textgen.py` | Land the hoist refactor as its own PR before any behaviour change. Run the full test suite between commits. |
-| NUG-003's OpenRouter delta-merge bugs are caught only in production | Add a mock-deltas test in `test_openrouter.py` that replays a captured SSE stream of a tool-call response. Capture from a real call and commit the fixture. |
-| Sprint slips past 2026-05-10 | NUG-001 and NUG-002 alone ship a respectable v0.3. NUG-003 can be deferred to v0.3.1 if needed without breaking the release theme. |
-| Doc drift re-introduced by NUG-002 | NUG-010 is sequenced last for this reason. |
+| Spec §8 open questions snowball during implementation | Pre-commit to recommended answers in the spec (already drafted). Treat changes from those as part of the PR description, not new design rounds. |
+| Recursion depth bookkeeping interacts badly with thread-pool reuse in `nugget-server` | Use `contextvars.ContextVar`, not `threading.local`. Test with two concurrent web sessions both spawning subagents. |
+| Bench engine doesn't support nested-arg path constraints, expanding NUG-016 scope | If this surfaces, drop the depth-cap and allowlist cases to assertions inside `tests/test_subagent_e2e.py` and keep the bench case minimal. |
+| Sprint slips past 2026-05-13 | NUG-015 alone is a respectable v0.4. NUG-016 can move to v0.4.1 if needed; NUG-017 should not slip (it's an hour). |
 
 ---
 
 ## Definition of "ready to ship"
 
-Before opening the v0.3 release PR (`staging` → `main`):
+Before opening the v0.4 release PR (`staging` → `main`):
 
-- [ ] All four tickets above merged into `develop` and forwarded to `staging`.
-- [ ] `pyproject.toml` version bumped to `0.3.0`.
-- [ ] `ROADMAP.md` "Done" section updated.
-- [ ] `bench/run.py --filter render_output` passes end-to-end (not mock).
-- [ ] `nugget --backend openrouter` smoke-tested with at least one tool-call
-      and one non-tool-call prompt.
-- [ ] `CHANGELOG` (or release notes drafted in PR body) lists the four
+- [ ] NUG-015, NUG-016, NUG-017 merged into `develop` and forwarded to `staging`.
+- [ ] `pyproject.toml` version bumped to `0.4.0`.
+- [ ] `ROADMAP.md` "Done" section updated; #14 row marked complete (or
+      flagged "MVP complete; full skill integration deferred").
+- [ ] `tool_docs/SUBAGENT_SPEC.md` §8 filled in with implementation
+      decisions.
+- [ ] `bench/run.py --filter subagent` passes ≥80% in mock mode.
+- [ ] `nugget-server` smoke-tested with at least one subagent call producing
+      `subagent_call` and `subagent_done` SSE events visible in the browser
+      devtools.
+- [ ] `CHANGELOG` (or release notes drafted in PR body) lists the three
       tickets and the bumped version.

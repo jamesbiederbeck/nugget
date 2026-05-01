@@ -18,7 +18,14 @@ A fourth theme is emerging but isn't ready to ship: **session/agent context** �
 
 ## Release framing
 
-### v0.3 — "Routing & backends complete"
+### v0.3 — "Routing & backends complete" — SHIPPED
+
+Released as **0.3.0**. NUG-001, NUG-002, NUG-003, NUG-010 merged. NUG-005
+(Jinja template sink) deferred. Four bonus tools landed alongside the release
+(`grep_search`, `http_fetch`, `jq`, `tasks`) — see NUG-017 for their docs
+catch-up.
+
+**Original framing (kept for context):**
 
 **Theme:** Finish the output-routing story; prove the backend abstraction with a real second backend.
 
@@ -38,7 +45,42 @@ A fourth theme is emerging but isn't ready to ship: **session/agent context** �
 - All bench cases in `render_output.tsv` evaluate end-to-end (not just intent).
 - `CONTRIBUTING.md` and `tool_docs/TOOL_SPEC.md` reflect the actual `Backend.run()` 4-tuple signature.
 
-### v0.4 — "Web UI parity"
+### v0.4 — "Subagent MVP"
+
+**Theme:** Ship the subagent primitive — child sessions seeded with parent
+tool output, returning a distilled answer. Single biggest user-facing capability
+gain; unblocks pipelines like `grep → distill → answer` without bloating the
+parent's context window.
+
+**Tickets:** NUG-015, NUG-016, NUG-017
+
+**Spec:** `tool_docs/SUBAGENT_SPEC.md` (covers semantics, API surface,
+approval gating, persistence, open questions).
+
+**Why this slice:**
+- The subagent feature is the headline user request for the next release. It
+  is *the* feature contributors will be asked about.
+- Re-scoping ROADMAP item #14 to NOT depend on agent configs (#12) and skills
+  (#13) means we can deliver value without a multi-feature dependency stack.
+- NUG-016 (bench tests) ships in the same release because subagent behaviour
+  is exactly the kind of model-compliance-against-prompt question the bench
+  was built for. Without bench coverage, regressions are silent.
+- NUG-017 (tool docs catch-up) is small and bundles cleanly here so v0.4 ships
+  with `TOOL_SPEC.md` accurate.
+
+**Out of scope for v0.4:** web UI work, status bar, hooks, MCP, agent
+configs, skills, parallel subagents, inner-stream events.
+
+**Definition of done:**
+- `spawn_agent` tool callable from any backend; child runs with explicit
+  context, allowlisted tools, capped recursion depth.
+- `bench/cases/subagent.tsv` runs end-to-end in mock mode at ≥80% pass rate.
+- The eight open questions in `tool_docs/SUBAGENT_SPEC.md` §8 are resolved
+  and captured in the spec.
+- `tool_docs/TOOL_SPEC.md` documents the four bonus v0.3 tools plus
+  `spawn_agent`.
+
+### v0.5 — "Web UI parity"
 
 **Theme:** Bring the web frontend up to CLI feature parity and add the long-promised live observability.
 
@@ -52,7 +94,7 @@ A fourth theme is emerging but isn't ready to ship: **session/agent context** �
 
 **Out of scope for v0.4:** subagents, agent configs, MCP, hooks. Still in design.
 
-### v0.5 — "Session intelligence"
+### v0.6 — "Session intelligence"
 
 **Theme:** Make sessions retrievable, searchable, and titled.
 
@@ -60,7 +102,7 @@ A fourth theme is emerging but isn't ready to ship: **session/agent context** �
 
 NUG-006 (session-title computation) needs *enough* hooks plumbing to fire `on_message` once per session, but does not require the full hooks framework. It's a coherent slice. NUG-014 (semantic search) gives the user a real reason to want titles in the first place.
 
-### v0.6+ — "Extensibility" (design pending)
+### v0.7+ — "Extensibility" (design pending)
 
 These ROADMAP items need design rounds before any ticket:
 
@@ -68,7 +110,10 @@ These ROADMAP items need design rounds before any ticket:
 - **#6 — MCP support**: stdio + HTTP/SSE servers, namespaced tool routing, lifecycle. Wants a design doc that covers connection management, error recovery, and how MCP tools interact with the existing approval system.
 - **#12 — Agent configs**: persistent named configs with their own memory DBs. Question to answer: does an agent inherit pinned memories from the global DB or not?
 - **#13 — Skill support**: depends on #12.
-- **#14 — Subagent framework**: depends on #13. The `spawn_agent` tool is the easy part; thread/process model and result aggregation is the hard part.
+- **#14 — Subagent framework**: ~~depends on #13~~ — re-scoped 2026-04-29.
+  MVP ticketed as **NUG-015** for v0.4 against `tool_docs/SUBAGENT_SPEC.md`.
+  Skill-bundle integration (`skill: <name>` arg in `spawn_agent`) remains
+  design-pending behind #13.
 
 These should not be turned into tickets until each has at least a one-page design note in `tool_docs/`.
 

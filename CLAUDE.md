@@ -18,6 +18,9 @@ uv pip install -e ".[web]"
 # Install with dev/test deps
 uv pip install -e ".[dev]"
 
+# Install as a tool (with web server support — required for nugget-server)
+uv tool install ".[web]" --force
+
 # Run tests
 uv run pytest
 

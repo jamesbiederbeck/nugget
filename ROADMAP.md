@@ -12,6 +12,14 @@
 - [x] Shell commands tool (`tools/shell.py`)
 - [x] `render_output` stub + bench cases
 - [x] Branching strategy — develop → staging → main with per-branch CI and Docker
+- [x] `render_output` dispatch (NUG-001) — routing helpers hoisted to `_routing.py`
+- [x] `Backend` ABC (NUG-002)
+- [x] OpenRouter backend (NUG-003)
+- [x] Doc-drift cleanup, v0.3.0 release (NUG-010)
+- [x] `grep_search` tool (ripgrep wrapper, allow-by-default)
+- [x] `http_fetch` tool (GET/HEAD allow, mutating methods ask)
+- [x] `jq` tool (JMESPath query over JSON / `$var` payloads)
+- [x] `tasks` tool (SQLite task list, delete asks)
 
 ## Backlog
 
@@ -20,9 +28,9 @@ Items ordered by priority. "Requires" lists hard blockers (✓ = already done).
 
 | # | Item | Requires | Unblocks |
 |---|------|----------|---------|
-| 1 | `render_output` dispatch | output routing ✓, shell ✓ | Jinja sink, bench updates |
-| 2 | Backend ABC | `Backend` Protocol ✓ | OpenRouter backend |
-| 3 | OpenRouter backend | Backend ABC (#2) | — |
+| 1 | ~~`render_output` dispatch~~ ✓ | output routing ✓, shell ✓ | Jinja sink, bench updates |
+| 2 | ~~Backend ABC~~ ✓ | `Backend` Protocol ✓ | OpenRouter backend |
+| 3 | ~~OpenRouter backend~~ ✓ | Backend ABC (#2) | — |
 | 4 | Hooks framework | session ✓, tool system ✓ | Session title, git/file hooks |
 | 5 | Session title computation | hooks (#4), backend ✓ | Status bar title field |
 | 6 | MCP support | tool system ✓, Backend Protocol ✓ | External tool ecosystem |
@@ -30,13 +38,17 @@ Items ordered by priority. "Requires" lists hard blockers (✓ = already done).
 | 8 | Status bar — CLI + web | session title (#5) | Streaming thinking display |
 | 9 | Streaming thinking blocks | SSE ✓; status bar (#8) for CLI | — |
 | 10 | Tool toggles in web UI | web server ✓ | — |
-| 11 | Jinja template sink | `render_output` (#1), `$var` binding ✓ | — |
+| 11 | Jinja template sink | `render_output` (#1) ✓, `$var` binding ✓ | — |
 | 12 | Agent configs | config ✓, memory ✓, approval ✓ | Skill support, subagents |
 | 13 | Skill support | agent configs (#12) | Subagent framework |
-| 14 | Subagent framework | session ✓, backends ✓, agent configs (#12), skills (#13) | — |
+| 14 | **Subagent framework (`spawn_agent`)** — see `tool_docs/SUBAGENT_SPEC.md` | session ✓, backends ✓; agent configs (#12) and skills (#13) **NOT required for MVP** | Skill-based subagents |
 | 15 | Semantic search | memory.db ✓ | — |
 | 16 | Bench: prompt-variant sweeping | bench ✓ | — |
 | 17 | Bench: flakiness report | bench ✓ | — |
+
+**Note:** Item #14 has been re-scoped. The `tool_docs/SUBAGENT_SPEC.md` MVP is
+self-contained and does NOT block on agent configs (#12) or skills (#13);
+those become additional ergonomic surfaces layered on top once they ship.
 
 ---
 

@@ -6,9 +6,31 @@ The "Roadmap #" column references items in `ROADMAP.md` at repo root.
 
 ---
 
-## v0.3 — Routing & backends
+## v0.3 — Routing & backends · SHIPPED 2026-04 (v0.3.0)
 
-### NUG-001 · Implement `render_output` dispatch · P0 · M · feature
+NUG-001, NUG-002, NUG-003, NUG-010 all merged. NUG-005 (Jinja template sink)
+deferred to a later release. Released as v0.3.0.
+
+Additionally shipped (not originally ticketed, landed alongside the v0.3 line):
+
+- **`grep_search` tool** — `subprocess` ripgrep wrapper, `shell=False`,
+  `APPROVAL = "allow"`. Source: `src/nugget/tools/grep_search.py`. Tests in
+  `tests/tools/test_grep_search.py`.
+- **`http_fetch` tool** — `requests`-based URL fetcher. Callable approval:
+  GET/HEAD = `allow`, all other methods = `ask`. Source:
+  `src/nugget/tools/http_fetch.py`.
+- **`jq` tool** — JMESPath query over JSON strings or `$var`-bound objects.
+  `APPROVAL = "allow"`. Source: `src/nugget/tools/jq.py`.
+- **`tasks` tool** — Persistent SQLite task list, mirroring `memory.py`.
+  Callable approval: `delete` = `ask`, all other operations = `allow`. Source:
+  `src/nugget/tools/tasks.py`. DB at `~/.local/share/nugget/tasks.db`.
+
+Test count: **298 passing**. `tool_docs/TOOL_SPEC.md` still needs entries for
+the four new tools — see NUG-019 below.
+
+---
+
+### NUG-001 · Implement `render_output` dispatch · P0 · M · feature · DONE
 **Roadmap #:** 1
 
 Today `src/nugget/tools/render_output.py:33` raises `NotImplementedError`. The system prompt and bench cases (`bench/cases/render_output.tsv`) already direct the model to use it.
@@ -28,7 +50,7 @@ Today `src/nugget/tools/render_output.py:33` raises `NotImplementedError`. The s
 
 ---
 
-### NUG-002 · Promote `Backend` Protocol to ABC · P1 · S · chore
+### NUG-002 · Promote `Backend` Protocol to ABC · P1 · S · chore · DONE
 **Roadmap #:** 2
 
 Small refactor. The `@runtime_checkable` Protocol in `src/nugget/backends/__init__.py` has no enforced typed signature.
@@ -45,7 +67,7 @@ Small refactor. The `@runtime_checkable` Protocol in `src/nugget/backends/__init
 
 ---
 
-### NUG-003 · OpenRouter backend · P1 · M · feature
+### NUG-003 · OpenRouter backend · P1 · M · feature · DONE
 **Roadmap #:** 3
 
 A backend that targets OpenRouter's `/v1/chat/completions` endpoint, enabling any OpenRouter-hosted model without a local inference server.
@@ -85,7 +107,7 @@ Adds an `output: "template"` sink. The model binds tool outputs to named variabl
 
 ---
 
-### NUG-010 · Doc-drift cleanup · P1 · S · docs
+### NUG-010 · Doc-drift cleanup · P1 · S · docs · DONE
 **Roadmap #:** —
 
 Three known mismatches between docs and code.
@@ -101,7 +123,158 @@ Three known mismatches between docs and code.
 
 ---
 
-## v0.4 — Web UI parity
+## v0.4 — Subagent MVP
+
+The headline new feature requested for v0.4. Specification:
+`tool_docs/SUBAGENT_SPEC.md`. The MVP is intentionally scoped to a single
+self-contained tool (`spawn_agent`) and does **not** depend on agent configs
+(NUG-006 etc.) or skills shipping first.
+
+### NUG-015 · `spawn_agent` tool — subagent MVP · P0 · L · feature
+**Roadmap #:** 14
+**Spec:** `tool_docs/SUBAGENT_SPEC.md`
+
+Implement the subagent primitive described in the spec: a built-in tool that
+spawns a child Nugget session with a focused system prompt, an explicit
+context payload (inline or via `$var` bindings), and a tool allowlist; runs
+the child via the parent's `Backend.run()`; returns a result dict that flows
+through the existing output-routing machinery.
+
+**Acceptance criteria:**
+- New `src/nugget/tools/spawn_agent.py` matching the SCHEMA in the spec,
+  including `task`, `context`, `context_vars`, `system_prompt`, `tools`,
+  `max_turns`, `return_thinking` arguments. Default `APPROVAL = "ask"`.
+- New helper module `src/nugget/subagent.py` containing system-prompt
+  assembly, context-rendering rules (inline string verbatim, dict→`json.dumps
+  indent=2`, other→`repr`), the 32 KB byte-cap-with-sentinel truncation
+  behaviour, and a thread-local recursion-depth counter.
+- `context_vars` are resolved against the current turn's `bindings` dict
+  (the same one `_routing.py` exposes for sink/`$var` handling). Unbound
+  names → tool returns `{"error": "$<name> not bound"}` without spawning.
+- The child shares the parent's `Backend` instance (per spec §8.1); a fresh
+  `Session` is constructed in-memory.
+- Tool allowlist defaults to **empty** (pure-reasoning subagent). When
+  non-empty, the child's tool registry is filtered to those names *before*
+  approval evaluation. Approval rules from `config.json` apply unchanged
+  inside the child.
+- Recursion depth capped at `subagent.max_depth` (default 2); depth limit
+  exceeded → `{"_denied": true, "reason": "subagent depth limit exceeded"}`.
+- Per-call subagent transcripts persisted to
+  `~/.local/share/nugget/sessions/<parent_id>/subagents/<call_id>.json`. Not
+  surfaced by `Session.list_sessions()`. Add `Session.load_subagents(parent_id)`
+  helper.
+- `Config.DEFAULTS` gains the `subagent` block from spec §6.
+- Result dict from `execute()` is routable: default inline; `output:
+  "display"` shows just the `answer`; `output: "$x"` binds the whole dict;
+  `output: "display:answer"` JMESPath-extracts.
+- Web server emits `subagent_call` and `subagent_done` SSE events (spec §3d).
+  Inner-stream events suppressed in v0 (`subagent.stream_inner: false`
+  default).
+- Unit tests in `tests/tools/test_spawn_agent.py` covering: pure-reasoning
+  spawn (no tools), spawn with tool allowlist + tool exchange, recursion
+  depth cap, unbound `context_var`, oversized context truncation, persistence
+  to per-call JSON file, output routing pass-through (`$var`, `display`,
+  `display:answer`).
+- The eight open questions in spec §8 are resolved during implementation and
+  the spec doc is updated in the same PR with the chosen answers.
+
+**Files likely touched:** new `src/nugget/tools/spawn_agent.py`, new
+`src/nugget/subagent.py`, `src/nugget/config.py`, `src/nugget/session.py`,
+`src/nugget/server.py` (SSE events + types), `src/nugget/backends/_routing.py`
+(only if context-var resolution needs harness coupling), `tool_docs/TOOL_SPEC.md`
+(new tool entry), `tool_docs/SUBAGENT_SPEC.md` (decisions captured), new
+`tests/tools/test_spawn_agent.py`, new `tests/test_subagent.py`.
+
+**Out of scope:** parallel sibling spawning, skill-bundle integration
+(`skill: <name>` arg semantics — defer until skills exist), inner-token
+streaming.
+
+**Estimate:** 1–2 days. The recursion guard, context-binding resolution, and
+per-call persistence each have a couple of edge cases worth isolating.
+
+---
+
+### NUG-016 · Subagent bench tests · P1 · M · test
+**Roadmap #:** 14
+**Spec:** `tool_docs/SUBAGENT_SPEC.md`
+**Depends on:** NUG-015
+
+Once `spawn_agent` lands, exercise it end-to-end through the bench harness so
+regressions in subagent behaviour show up in the same compliance dashboard as
+the rest of the prompt-following work.
+
+**Acceptance criteria:**
+- New `bench/cases/subagent.tsv` with at least the following case families:
+  - **distillation:** parent receives a large mocked tool payload, binds it
+    to `$matches`, calls `spawn_agent` with `context_vars=["matches"]`, and
+    the bench asserts `tool_call[N].name == "spawn_agent"` and that
+    `tool_call[N].args.context_vars` contains `"matches"`.
+  - **tool allowlist respected:** bench prompt instructs the parent to spawn
+    a subagent with `tools=["calculator"]`. Constraint: the recorded child
+    tool exchange list contains only `calculator` calls (or none).
+  - **depth cap honoured:** crafted system prompt encourages a deep recursion;
+    bench asserts the harness denies past `max_depth` and the parent recovers
+    (no traceback, finish_reason in {`stop`, `tool_calls`}).
+  - **output routing pass-through:** parent uses `output: "$child"` and a
+    follow-up tool call references `$child.answer`. Assert the substitution
+    happened.
+- Integration tests in `tests/test_subagent_e2e.py` (separate from unit tests)
+  drive the full parent→child→answer loop using `pytest-mock` to stub the
+  upstream completions endpoint with canned responses (no live model
+  required for CI). Cover: happy-path single-shot, child uses one tool,
+  child hits its `max_turns` cap, child's `_denied` propagates back.
+- A bench fixture mock-tool (`mock_grep`) producing a deterministic large
+  payload is added under `bench/fixtures/` so distillation cases are
+  reproducible without the real `grep_search` tool's environment dependence.
+- Bench DB schema is unchanged; results land in the existing `case_runs`
+  table tagged with the new case IDs.
+- `bench/erd.md` and `bench/README.md` updated with a one-paragraph note that
+  subagent cases are present and how their constraints differ (they assert
+  on nested `tool_call.args.context_vars` and on child-side tool sequences,
+  which existing bench cases do not).
+- `uv run python bench/run.py --filter subagent --repeat 3` passes
+  end-to-end against the mock upstream; pass rate ≥ 80%.
+
+**Files likely touched:** new `bench/cases/subagent.tsv`, new
+`bench/fixtures/mock_grep.py` (or extend an existing fixtures module), new
+`tests/test_subagent_e2e.py`, `bench/run.py` (only if a new constraint type
+is needed for nested-arg assertions), `bench/erd.md`, `bench/README.md`.
+
+**Out of scope:** running cases against a live OpenRouter or
+text-generation-webui backend in CI. Mock-mode is sufficient for v0.4.
+
+**Estimate:** Half a day to a full day, contingent on whether the bench
+constraint engine already supports nested-arg path assertions
+(`tool_call[0].args.context_vars[0]`). If not, an extension to `bench/run.py`
+is part of this ticket.
+
+---
+
+### NUG-017 · Tool docs catch-up for new tools · P1 · S · docs
+**Roadmap #:** —
+
+Four new tools shipped alongside v0.3 (`grep_search`, `http_fetch`, `jq`,
+`tasks`) but `tool_docs/TOOL_SPEC.md` and `README.md` still list only the
+original eight. Bring the docs back into agreement with the source.
+
+**Acceptance criteria:**
+- `tool_docs/TOOL_SPEC.md` "Built-in Tools" gains entries for `grep_search`,
+  `http_fetch`, `jq`, and `tasks`, each with: schema, example
+  input/output, approval-gate description (callable gates spelled out), and
+  any environment / disk-state side effects (`tasks` writes
+  `~/.local/share/nugget/tasks.db`).
+- `README.md` tools table includes the four new tools (one line each).
+- `tool_docs/TOOL_SPEC.md` Table of Contents updated.
+- The "Approval Rules" → "Tool gate in a module" example mentions the
+  callable form used by `http_fetch` and `tasks` as a pattern.
+
+**Files likely touched:** `tool_docs/TOOL_SPEC.md`, `README.md`.
+
+**Estimate:** 1–2 hours.
+
+---
+
+## v0.5 — Web UI parity
 
 ### NUG-004 · Tool approvals in web UI · P1 · L · feature
 **Roadmap #:** 7
@@ -190,7 +363,7 @@ Per-tool enable/disable controls. Requires a `tools.disabled` config key first (
 
 ---
 
-## v0.5 — Session intelligence
+## v0.6 — Session intelligence
 
 ### NUG-006 · Session-title computation · P2 · L · feature
 **Roadmap #:** 5 (and the minimum-viable subset of #4)
