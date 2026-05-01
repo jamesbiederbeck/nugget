@@ -215,7 +215,16 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="nugget-server", description="nugget web server")
     p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    p.add_argument("--backend", metavar="NAME", help="Backend to use (e.g. openrouter)")
+    p.add_argument("--model", metavar="MODEL", help="Model to use (e.g. google/gemma-4-31b-it)")
     args = p.parse_args()
+
+    if args.backend or args.model:
+        cfg = _get_cfg()
+        if args.backend:
+            cfg._data["backend"] = args.backend
+        if args.model:
+            cfg._data["openrouter_model"] = args.model
 
     print(f"nugget server → http://{args.host}:{args.port}")
     uvicorn.run("nugget.server:app", host=args.host, port=args.port, reload=False)

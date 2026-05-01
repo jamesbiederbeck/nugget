@@ -66,6 +66,7 @@ def make_parser() -> argparse.ArgumentParser:
 
     # Config overrides
     p.add_argument("--backend", metavar="NAME", help="Backend to use (e.g. textgen)")
+    p.add_argument("--model", metavar="MODEL", help="Model to use (e.g. openai/gpt-4o for openrouter backend)")
     p.add_argument("--system", metavar="PROMPT", help="Override system prompt for this run")
     p.add_argument("--max-tokens", type=int, metavar="N")
     p.add_argument("--temperature", type=float, metavar="F")
@@ -115,6 +116,8 @@ def main() -> None:
     overrides = {}
     if args.backend:
         overrides["backend"] = args.backend
+    if args.model:
+        overrides["openrouter_model"] = args.model
     if args.system:
         overrides["system_prompt"] = args.system
     if args.max_tokens:
