@@ -22,3 +22,10 @@ def tmp_memory_db(tmp_path, monkeypatch):
     db_path = tmp_path / "memory.db"
     monkeypatch.setattr("nugget.tools.memory._DB_PATH", db_path)
     return db_path
+
+
+@pytest.fixture
+def tmp_tasks_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "tasks.db"
+    monkeypatch.setattr("nugget.tools.tasks._DB_PATH", db_path)
+    return db_path
