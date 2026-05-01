@@ -3,7 +3,69 @@
 Config file: `~/.config/nugget/config.json`  
 Created automatically on first run with defaults.
 
-For the machine-readable JSON Schema see `TOOL_SPEC.md § Configuration Schema`.
+---
+
+## JSON Schema
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "backend":             { "type": "string",  "default": "textgen" },
+    "api_url":             { "type": "string",  "format": "uri", "default": "http://127.0.0.1:5000" },
+    "model":               { "type": "string",  "default": "gemma-4-E4B-it-uncensored-Q4_K_M.gguf" },
+    "temperature":         { "type": "number",  "minimum": 0, "maximum": 2, "default": 0.7 },
+    "top_p":               { "type": "number",  "minimum": 0, "maximum": 1, "default": 0.95 },
+    "top_k":               { "type": "integer", "minimum": 0, "default": 20 },
+    "max_tokens":          { "type": "integer", "minimum": 1, "default": 2048 },
+    "thinking_effort":     { "type": "integer", "enum": [0, 1, 2, 3], "default": 0 },
+    "show_thinking":       { "type": "boolean", "default": false },
+    "show_tool_calls":     { "type": "boolean", "default": true },
+    "show_tool_responses": { "type": "boolean", "default": false },
+    "show_system_prompt":  { "type": "boolean", "default": false },
+    "system_prompt":       { "type": "string",  "default": "You are a helpful assistant." },
+    "append_datetime":     { "type": "boolean", "default": true },
+    "sessions_dir":        { "type": "string",  "default": "~/.local/share/nugget/sessions" },
+    "debug":               { "type": "boolean", "default": false },
+    "openrouter_api_key":  { "type": "string",  "default": "" },
+    "openrouter_model":    { "type": "string",  "default": "openai/gpt-4o-mini" },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "default": { "type": "string", "enum": ["allow", "deny", "ask"], "default": "allow" },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tool":   { "type": "string" },
+              "args":   { "type": "object" },
+              "action": { "type": "string", "enum": ["allow", "deny", "ask"] }
+            },
+            "required": ["action"]
+          }
+        },
+        "sink_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "subtree":  { "type": "string" },
+              "exact":    { "type": "string" },
+              "existing": { "type": "boolean" },
+              "any":      { "type": "boolean" },
+              "action":   { "type": "string", "enum": ["allow", "deny", "ask"] }
+            },
+            "required": ["action"]
+          }
+        },
+        "sink_conflict": { "type": "string", "enum": ["strictest", "first"], "default": "strictest" }
+      }
+    }
+  }
+}
+```
 
 ---
 

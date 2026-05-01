@@ -24,9 +24,8 @@
 5. [Token Limits](#token-limits)
 6. [Approval Rules](#approval-rules)
 7. [Output Routing](#output-routing)
-8. [Configuration Schema](#configuration-schema)
-9. [Writing a Custom Tool](#writing-a-custom-tool)
-10. [Writing a Custom Backend](#writing-a-custom-backend)
+8. [Writing a Custom Tool](#writing-a-custom-tool)
+9. [Writing a Custom Backend](#writing-a-custom-backend)
 
 ---
 
@@ -910,102 +909,6 @@ user turn). They are discarded when the turn ends.
 
 Only `output` is reserved today. Other arg keys are forwarded to the
 tool unchanged. New meta-args may be added in future versions.
-
----
-
-## Configuration Schema
-
-Full JSON Schema for `~/.config/nugget/config.json`:
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "properties": {
-    "backend": {
-      "type": "string",
-      "default": "textgen",
-      "description": "Backend identifier. Options: 'textgen' (default), 'openrouter'."
-    },
-    "api_url": {
-      "type": "string",
-      "format": "uri",
-      "default": "http://127.0.0.1:5000",
-      "description": "Base URL of the upstream model server."
-    },
-    "model": {
-      "type": "string",
-      "default": "gemma-4-E4B-it-uncensored-Q4_K_M.gguf",
-      "description": "Model filename to request from the backend."
-    },
-    "temperature": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 2,
-      "default": 0.7
-    },
-    "max_tokens": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 2048
-    },
-    "thinking_effort": {
-      "type": "integer",
-      "enum": [0, 1, 2, 3],
-      "default": 0,
-      "description": "0=off, 1=low, 2=medium, 3=high chain-of-thought effort."
-    },
-    "sessions_dir": {
-      "type": "string",
-      "default": "~/.local/share/nugget/sessions",
-      "description": "Directory where session JSON files are saved."
-    },
-    "approval": {
-      "type": "object",
-      "properties": {
-        "default": {
-          "type": "string",
-          "enum": ["allow", "deny", "ask"],
-          "default": "allow"
-        },
-        "rules": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "tool":   { "type": "string" },
-              "args":   { "type": "object" },
-              "action": { "type": "string", "enum": ["allow", "deny", "ask"] }
-            },
-            "required": ["action"]
-          }
-        },
-        "sink_rules": {
-          "type": "array",
-          "description": "Path-based rules for tools whose OUTPUT is 'file:<path>'. If absent, nugget.approval.DEFAULT_SINK_RULES is used.",
-          "items": {
-            "type": "object",
-            "properties": {
-              "subtree":  { "type": "string", "description": "Path or '$CWD' — matches paths under this prefix." },
-              "exact":    { "type": "string" },
-              "existing": { "type": "boolean" },
-              "any":      { "type": "boolean" },
-              "action":   { "type": "string", "enum": ["allow", "deny", "ask"] }
-            },
-            "required": ["action"]
-          }
-        },
-        "sink_conflict": {
-          "type": "string",
-          "enum": ["strictest", "first"],
-          "default": "strictest",
-          "description": "How to resolve when multiple sink_rules match a single path."
-        }
-      }
-    }
-  }
-}
-```
 
 ---
 

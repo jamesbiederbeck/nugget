@@ -104,7 +104,7 @@ Optionally add `APPROVAL = "allow"` / `"deny"` / `"ask"` (or a callable) to set 
 
 ## Configuration
 
-Config lives at `~/.config/nugget/config.json` (created on first run). See [`tool_docs/CONFIG.md`](tool_docs/CONFIG.md) for the full key reference and annotated examples. The JSON Schema lives in `tool_docs/TOOL_SPEC.md § Configuration Schema`.
+Config lives at `~/.config/nugget/config.json` (created on first run). See [`tool_docs/CONFIG.md`](tool_docs/CONFIG.md) for the full key reference, JSON Schema, and annotated examples.
 
 ## Releasing
 
