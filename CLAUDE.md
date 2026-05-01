@@ -34,9 +34,11 @@ uv run pytest tests/test_session.py::test_function_name -v
 nugget
 nugget "your message"
 nugget -v --thinking "hard question"
+nugget --model "anthropic/claude-3.5-sonnet" "hard question"
 
 # Run web server
 nugget-server --host 127.0.0.1 --port 8000
+nugget-server --backend openrouter --model anthropic/claude-3.5-sonnet
 ```
 
 ## Branching strategy
@@ -53,13 +55,13 @@ PRs flow `develop → staging → main`. Direct commits to `main` are for meta c
 
 ### Request flow
 
-`__main__.py` → `Config` → `make_backend()` → `TextgenBackend.run()` → tool loop → `Session.save()`
+`__main__.py` → `Config` → `make_backend()` → `Backend.run()` → tool loop → `Session.save()`
 
-The backend's `run()` method assembles a Gemma 4 prompt, calls the upstream `/v1/completions` endpoint, parses tool calls out of the raw completion text, executes them via `tool_executor`, and loops up to 16 times until there are no more tool calls.
+The backend's `run()` method handles prompt assembly, calls the upstream API, parses tool calls, executes them via `tool_executor`, and loops up to 16 times until there are no more tool calls. `TextgenBackend` formats Gemma 4 special tokens and calls `/v1/completions`; `OpenRouterBackend` uses native OpenAI-compatible tool calling.
 
 ### Key subsystems
 
-**Backends** (`src/nugget/backends/`): Implement the `Backend` protocol — a `run()` method that takes messages, tool schemas, a tool executor callable, and a system prompt, and returns `(text, thinking, tool_exchanges)`. Register new backends in `make_backend()` in `backends/__init__.py`.
+**Backends** (`src/nugget/backends/`): Implement the `Backend` ABC — a `run()` method that takes messages, tool schemas, a tool executor callable, and a system prompt, and returns `(text, thinking, tool_exchanges, finish_reason)`. Register new backends in `make_backend()` in `backends/__init__.py`.
 
 **Tools** (`src/nugget/tools/`): Auto-discovered at startup. Each module must expose `SCHEMA` (OpenAI function-calling format dict) and `execute(args: dict) -> dict`. An optional `APPROVAL` attribute (string `"allow"/"deny"/"ask"` or a callable) sets the default approval gate.
 
@@ -71,11 +73,11 @@ The backend's `run()` method assembles a Gemma 4 prompt, calls the upstream `/v1
 
 **Prompt assembly** (`src/nugget/backends/textgen.py`): Uses a Jinja2 template (`src/nugget/templates/system.j2`) for the system turn, then manually formats Gemma 4 special tokens (`<|turn>`, `<|channel>thought`, `<|tool_call>`, `<|tool_response>`, etc.) for all conversation turns.
 
-**Web server** (`src/nugget/server.py`): FastAPI app with SSE streaming. The `/api/sessions/{id}/chat` endpoint runs the backend in a background thread and emits typed events (`token`, `thinking`, `tool_call`, `tool_result`, `done`, `error`). Static files from `src/nugget/web/` are served at `/`.
+**Web server** (`src/nugget/server.py`): FastAPI app with SSE streaming. The `/api/sessions/{id}/chat` endpoint runs the backend in a background thread and emits typed events (`token`, `thinking`, `tool_call`, `tool_result`, `done`, `error`). `POST /api/tools/reload` hot-reloads all tool modules. Static files from `src/nugget/web/` are served at `/`.
 
 ### Configuration
 
-Config lives at `~/.config/nugget/config.json`. `Config.ensure_default()` creates it on first run. See the full schema in `tool_docs/TOOL_SPEC.md`.
+Config lives at `~/.config/nugget/config.json`. `Config.ensure_default()` creates it on first run. See `tool_docs/CONFIG.md` for the full key reference and JSON Schema.
 
 ### Adding a tool
 
