@@ -19,7 +19,15 @@ SCHEMA = {
                 },
                 "url": {
                     "type": "string",
-                    "description": "The URL to save (required for 'post')"
+                    "description": "The URL to save (required for 'post' unless content is provided)"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Article title (optional for 'post')"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Raw article HTML/text to save directly (optional for 'post'; use with a placeholder url if no real URL exists)"
                 },
                 "query": {
                     "type": "string",
@@ -131,17 +139,23 @@ def execute(args: dict) -> dict:
             }
 
         elif operation == "post":
-            if "url" not in args:
-                return {"error": "missing required argument: 'url' for post"}
-            payload = {"url": args["url"]}
+            if "url" not in args and "content" not in args:
+                return {"error": "missing required argument: 'url' or 'content' for post"}
+            payload = {"url": args.get("url", "https://nugget.local/article")}
+            if "title" in args:
+                payload["title"] = args["title"]
+            if "content" in args:
+                payload["content"] = args["content"]
             if "tags" in args:
                 payload["tags"] = args["tags"]
             r = requests.post(f"{base_url}/api/entries.json", headers=headers, data=payload, timeout=15)
             r.raise_for_status()
             data = r.json()
+            # Wallabag API returns the entry ID. The actual view URL is typically /articles/<id>
             return {
                 "id": data.get("id"),
-                "url": args["url"],
+                "url": f"{base_url}/articles/{data.get('id')}",
+                "source_url": args["url"],
                 "status": "saved"
             }
 
