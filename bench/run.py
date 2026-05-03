@@ -54,6 +54,28 @@ def load_cases(path: Path) -> list[dict]:
 
 # ── Target resolution ────────────────────────────────────────────────────────
 
+def _resolve_path(obj, path: str) -> str | None:
+    """Resolve a dotted/indexed path into a nested dict/list structure.
+
+    Supports simple keys ("key"), array indexing ("key[0]"), and chained
+    access ("key.sub[1].field"). Returns json.dumps for non-scalars so
+    constraint regexes can match against the serialised form.
+    """
+    for token in re.split(r'\.(?![^\[]*\])', path):
+        if obj is None:
+            return None
+        m = re.match(r'^(\w+)\[(\d+)\]$', token)
+        if m:
+            obj = obj.get(m.group(1)) if isinstance(obj, dict) else None
+            idx = int(m.group(2))
+            obj = obj[idx] if isinstance(obj, list) and idx < len(obj) else None
+        else:
+            obj = obj.get(token) if isinstance(obj, dict) else None
+    if obj is None:
+        return None
+    return json.dumps(obj) if isinstance(obj, (list, dict)) else str(obj)
+
+
 def resolve_target(
     target: str,
     tool_calls: list[dict],
@@ -76,9 +98,7 @@ def resolve_target(
         if path == "name":
             return call["name"]
         if path.startswith("args."):
-            key = path[5:]
-            val = call["args"].get(key)
-            return str(val) if val is not None else None
+            return _resolve_path(call["args"], path[5:])
     return None
 
 
