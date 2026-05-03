@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] — in progress
+## [0.4.1]
 
 ### Added
 - `wolfram` tool — Wolfram|Alpha LLM API wrapper
