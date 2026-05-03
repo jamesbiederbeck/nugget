@@ -281,7 +281,225 @@ original eight. Bring the docs back into agreement with the source.
 
 ---
 
-## v0.5 — Web UI parity
+## v0.5 — Config profiles
+
+The headline new feature for v0.5. Design notes: `planning/profiles.md`.
+
+Lets users define named configuration overlays in `config.json` and activate
+one via a single CLI flag (`--profile <name>`). Profiles are also reusable as
+subagent personas — either explicitly via `spawn_agent`'s `profile` arg, or
+via a default declared in the `subagent` block. No new files, no
+registration; profile bodies live entirely in `config.json`.
+
+### NUG-018 · Profile resolution in `Config` · P0 · M · feature
+**Roadmap #:** —
+**Design:** `planning/profiles.md`
+
+Teach `Config` about a new top-level `profiles` key and a profile-selection
+step in its load pipeline. This is the foundation every other ticket in the
+v0.5 line builds on.
+
+**Acceptance criteria:**
+- `Config.__init__` accepts a new optional `profile: str | None` argument.
+  When set, the named profile is looked up in the loaded `profiles` block
+  and its keys are merged on top of the base config, before the
+  `overrides` dict is applied.
+- Resolution order, later layers winning: `DEFAULTS` → `config.json` base →
+  selected profile → `overrides` (CLI flags). Matches `planning/profiles.md`.
+- Nested objects (`approval`, `subagent`) are **whole-block replacement**,
+  not deep merge — if a profile sets `approval`, that block fully replaces
+  the base `approval`.
+- The `profiles` key is **stripped** from the resolved `_data` dict so it
+  never reaches runtime consumers; it remains accessible via a new
+  `Config.list_profiles() -> list[str]` helper for error messages and
+  introspection.
+- An unknown profile name raises a new `UnknownProfileError` exception
+  carrying the requested name and the list of available names. The CLI
+  formats this as a hard error: `unknown profile 'foo'. Available: bar, baz`.
+- `Config.DEFAULTS` gains an empty `"profiles": {}` entry so the schema is
+  documented even on first-run configs.
+- `Config` exposes `Config.active_profile: str | None` (the name selected at
+  construction time, or `None`).
+- Tests in `tests/test_config.py` covering: no-profile load (no behaviour
+  change), profile that overrides scalar keys, profile that fully replaces
+  `approval`, profile that fully replaces `subagent`, unknown profile name
+  raises, `profiles` key absent from resolved `_data`,
+  `list_profiles()` ordering deterministic.
+
+**Files likely touched:** `src/nugget/config.py`, `tests/test_config.py`.
+
+**Out of scope:** CLI plumbing (NUG-019), tool-list keys (NUG-020),
+subagent integration (NUG-021), docs (NUG-022).
+
+**Estimate:** Half a day. Merge logic is small; the test matrix is the bulk
+of the work.
+
+---
+
+### NUG-019 · `--profile` CLI flag (nugget + nugget-server) · P0 · S · feature
+**Roadmap #:** —
+**Design:** `planning/profiles.md`
+**Depends on:** NUG-018
+
+Wire the new `Config(profile=...)` argument into both entry points.
+
+**Acceptance criteria:**
+- `nugget --profile <name> [MESSAGE]` selects a profile for the run. Both
+  invocations of `Config(...)` in `src/nugget/__main__.py` (the initial
+  `ensure_default()` followed by the `Config(overrides)` rebuild) thread
+  the same `profile` value.
+- `nugget-server --profile <name>` selects a profile for the server's
+  default `Config` used to construct the backend and resolve approvals.
+- An unknown profile name exits non-zero before any backend connection is
+  attempted, with the error message defined in NUG-018.
+- `nugget --list-profiles` prints the names from
+  `Config.list_profiles()` one per line and exits 0. Empty list prints
+  nothing and exits 0.
+- The active profile name is shown in the CLI session header (when
+  attached to a TTY) — one extra line: `profile: <name>`. Hidden when no
+  profile is active.
+- Tests in `tests/test_main.py` (or extend the existing CLI tests) covering:
+  `--profile` argument parsing, unknown-name exit, `--list-profiles` output.
+- `tests/test_server.py` (existing or new) covering `--profile` plumbing
+  through to the resolved `Config` used by the server.
+
+**Files likely touched:** `src/nugget/__main__.py`, `src/nugget/server.py`,
+`tests/test_main.py`, `tests/test_server.py`.
+
+**Out of scope:** persisting last-used profile across sessions; per-session
+profile overrides at runtime via a `/profile` slash command (could be a
+follow-up, not in v0.5).
+
+**Estimate:** 2–3 hours.
+
+---
+
+### NUG-020 · `include_tools` / `exclude_tools` config keys · P1 · S · feature
+**Roadmap #:** —
+**Design:** `planning/profiles.md`
+**Depends on:** NUG-018
+
+Today the tool allowlist/denylist exists only as CLI flags
+(`--include-tools` / `--exclude-tools`). Profiles need the same expressive
+power as static config keys.
+
+**Acceptance criteria:**
+- Two new top-level config keys recognised by `Config.DEFAULTS`:
+  `"include_tools": null` and `"exclude_tools": null` (both `null` by
+  default — no filtering).
+- Validation: `include_tools` and `exclude_tools` cannot both be set
+  simultaneously (whether in base config, profile, or via CLI). A combined
+  setting raises a clear error at config-resolution time.
+- Resolution precedence (CLI flags still win): if `args.include_tools` or
+  `args.exclude_tools` are passed, they fully replace any config-level
+  values. Otherwise the resolved `Config` values feed
+  `tool_registry.schemas(include=..., exclude=...)`.
+- `src/nugget/__main__.py` and `src/nugget/server.py` both consult the
+  resolved `Config` values when no explicit CLI flags are supplied.
+- `tool_registry.schemas()` semantics are unchanged — this ticket only
+  changes the call sites.
+- Tests covering: profile sets `include_tools`, profile sets
+  `exclude_tools`, conflict error, CLI flag overrides config, base config
+  (no profile) honours the keys.
+
+**Files likely touched:** `src/nugget/config.py`, `src/nugget/__main__.py`,
+`src/nugget/server.py`, `tests/test_config.py`, `tests/test_main.py`.
+
+**Out of scope:** introducing wildcard or glob matching for tool names.
+
+**Estimate:** 3–4 hours.
+
+---
+
+### NUG-021 · Subagent profile integration · P1 · M · feature
+**Roadmap #:** —
+**Design:** `planning/profiles.md`
+**Depends on:** NUG-018, NUG-020
+
+`spawn_agent` becomes profile-aware. The child resolves its config from
+`DEFAULTS → config.json base → profile (explicit arg, else
+subagent.default_profile, else no overlay)`. The parent's active profile
+does **not** bleed into the child — profile resolution for the child is
+independent.
+
+**Acceptance criteria:**
+- `spawn_agent` SCHEMA gains an optional `profile` arg (string). Description:
+  "Name of a config profile to apply to the child session. Falls back to
+  `subagent.default_profile`. Unknown name → hard error."
+- `Config.DEFAULTS["subagent"]` gains `"default_profile": null`.
+- In `tools/spawn_agent.py:execute()`, the child config is built by calling
+  `Config(profile=resolved_name)` where `resolved_name` is, in order:
+  the explicit `profile` arg, else `subagent.default_profile`, else `None`.
+- Child config resolution starts from `DEFAULTS + config.json base`, NOT
+  from the parent's resolved config. The parent's active profile is
+  ignored. (This requires the child to load `config.json` fresh; the
+  parent's `Config` instance is available but only consulted for the
+  `subagent` block to read `default_profile` — capture this read up front
+  in a small helper to keep the code obvious.)
+- An unknown profile name (in the arg or in `subagent.default_profile`)
+  returns `{"error": "unknown profile '<name>'. Available: ..."}` without
+  spawning. The recursion-depth guard runs *before* profile resolution so
+  depth-limit errors take precedence.
+- The child's tool allowlist resolution honours the child profile's
+  `include_tools` / `exclude_tools` if the explicit `tools` arg to
+  `spawn_agent` is absent. If both the explicit `tools` arg and a profile
+  `include_tools`/`exclude_tools` are present, the explicit `tools` arg
+  wins (matches CLI precedence in NUG-020).
+- The per-call subagent transcript JSON gains a `"profile": <name|null>`
+  field so post-hoc inspection can tell which profile ran.
+- Tests in `tests/tools/test_spawn_agent.py` covering: explicit `profile`
+  arg, fallback to `subagent.default_profile`, unknown profile (both
+  paths) returns error dict, parent active profile does NOT propagate to
+  child, child profile's `include_tools` honoured when no `tools` arg.
+
+**Files likely touched:** `src/nugget/tools/spawn_agent.py`,
+`src/nugget/subagent.py` (only if helper extraction makes sense),
+`src/nugget/config.py` (DEFAULTS update),
+`tests/tools/test_spawn_agent.py`.
+
+**Out of scope:** profile changes mid-session; nested-profile inheritance
+across multiple spawn levels; surfacing the active child profile in
+`subagent_call` SSE events (could fall out of NUG-022 docs review).
+
+**Estimate:** Half a day. The extra wiring is small; the "parent profile
+doesn't bleed" semantics need a focused test.
+
+---
+
+### NUG-022 · Profile docs and changelog · P1 · S · docs
+**Roadmap #:** —
+**Design:** `planning/profiles.md`
+**Depends on:** NUG-018, NUG-019, NUG-020, NUG-021
+
+Bring `tool_docs/CONFIG.md`, `README.md`, `tool_docs/TOOL_SPEC.md`, and
+`CHANGELOG.md` (or release notes in PR body if no changelog file yet) up
+to date with the new keys, flags, and `spawn_agent` arg.
+
+**Acceptance criteria:**
+- `tool_docs/CONFIG.md` JSON Schema block extends with: `profiles`,
+  `include_tools`, `exclude_tools`, `subagent.default_profile`.
+- `tool_docs/CONFIG.md` gains a new "Profiles" section with: a worked
+  example mirroring `planning/profiles.md`, the merge semantics (whole-
+  block replacement for nested objects), and the
+  `--profile` / `--list-profiles` CLI usage.
+- `README.md` "Configuration" or top-level usage section gains a 4–6 line
+  example: define one profile, run `nugget --profile <name>`.
+- `tool_docs/TOOL_SPEC.md` `spawn_agent` entry documents the new `profile`
+  arg and links to `tool_docs/CONFIG.md` Profiles section.
+- `CHANGELOG.md` (create if missing) gets a `## v0.5.0` section listing
+  NUG-018..022.
+- `pyproject.toml` version bumped to `0.5.0` as part of this ticket's PR
+  (the release commit lands here).
+- `ROADMAP.md` gains a "Done" entry for v0.5 — Config profiles.
+
+**Files likely touched:** `tool_docs/CONFIG.md`, `README.md`,
+`tool_docs/TOOL_SPEC.md`, `CHANGELOG.md`, `pyproject.toml`, `ROADMAP.md`.
+
+**Estimate:** 2–3 hours.
+
+---
+
+## v0.6 — Web UI parity
 
 ### NUG-004 · Tool approvals in web UI · P1 · L · feature
 **Roadmap #:** 7
@@ -370,7 +588,7 @@ Per-tool enable/disable controls. Requires a `tools.disabled` config key first (
 
 ---
 
-## v0.6 — Session intelligence
+## v0.7 — Session intelligence
 
 ### NUG-006 · Session-title computation · P2 · L · feature
 **Roadmap #:** 5 (and the minimum-viable subset of #4)
