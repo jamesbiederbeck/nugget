@@ -166,6 +166,11 @@ def execute(args: dict) -> dict:
     max_turns_cap = subagent_cfg.get("max_turns_cap", 16)
     max_turns = min(int(args.get("max_turns") or max_turns_default), max_turns_cap)
 
+    return_thinking = bool(args.get("return_thinking"))
+    # When thinking is requested, ensure the child runs with at least effort=1.
+    # If the parent's config already has a higher effort, honour that instead.
+    child_thinking_effort = max(1, config.get("thinking_effort", 0)) if return_thinking else 0
+
     depth_token = _depth.set(current_depth + 1)
     t0 = time.perf_counter()
     try:
@@ -174,6 +179,7 @@ def execute(args: dict) -> dict:
             tool_schemas=child_schemas,
             tool_executor=child_tool_executor,
             system_prompt=child_system_prompt,
+            thinking_effort=child_thinking_effort,
         )
     except Exception as e:
         return {"error": f"subagent error: {e}"}
@@ -189,8 +195,8 @@ def execute(args: dict) -> dict:
         "finish_reason": child_finish,
         "truncated_context": truncated,
     }
-    if args.get("return_thinking") and child_thinking:
-        result["thinking"] = child_thinking
+    if return_thinking:
+        result["thinking"] = child_thinking or None
 
     # ── Persist per-call transcript ──────────────────────────────────────────
     if parent_sid is not None:

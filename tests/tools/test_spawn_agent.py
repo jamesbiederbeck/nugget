@@ -168,6 +168,30 @@ def test_return_thinking_included(tmp_path):
     result = _run({"task": "t", "return_thinking": True}, ctx)
     assert result.get("thinking") == "deep thought"
 
+def test_return_thinking_passes_nonzero_thinking_effort(tmp_path):
+    ctx = _make_ctx(tmp_path)
+    ctx["backend"].run.return_value = ("answer", "deep thought", [], "stop")
+
+    _run({"task": "t", "return_thinking": True}, ctx)
+    kwargs = ctx["backend"].run.call_args.kwargs
+    assert kwargs.get("thinking_effort", 0) >= 1
+
+def test_return_thinking_false_passes_zero_thinking_effort(tmp_path):
+    ctx = _make_ctx(tmp_path)
+
+    _run({"task": "t"}, ctx)
+    kwargs = ctx["backend"].run.call_args.kwargs
+    assert kwargs.get("thinking_effort", 0) == 0
+
+def test_return_thinking_null_when_child_produces_none(tmp_path):
+    ctx = _make_ctx(tmp_path)
+    # backend returns None for thinking (effort too low or model skipped it)
+    ctx["backend"].run.return_value = ("answer", None, [], "stop")
+
+    result = _run({"task": "t", "return_thinking": True}, ctx)
+    assert "thinking" in result
+    assert result["thinking"] is None
+
 def test_return_thinking_excluded_by_default(tmp_path):
     ctx = _make_ctx(tmp_path)
     ctx["backend"].run.return_value = ("answer", "deep thought", [], "stop")

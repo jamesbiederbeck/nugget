@@ -15,6 +15,7 @@
 
 ### Fixed
 - OpenRouter: validate API key on init, sort tool calls by stream index
+- `spawn_agent`: `return_thinking=true` now actually returns the child's thinking block. Previously the arg was accepted and documented but `backend.run()` was called with `thinking_effort=0`, so the child never generated thinking and the result always omitted the field. Fix: when `return_thinking=true`, the child runs with `thinking_effort=max(1, parent_config.thinking_effort)`. The `thinking` key is now always present in the result when requested (null if the child produced none). Motivated by sessions b3077b8b and d0b46965 where the model hallucinated this arg, suggesting it was a reasonable expectation that the feature should actually honour.
 
 ### Docs
 - `tool_docs/CONFIG.md` — practical config reference with JSON schema (moved from `TOOL_SPEC.md`)
