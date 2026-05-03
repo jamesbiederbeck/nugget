@@ -5,7 +5,7 @@ A feature to let users define named configuration overlays in `config.json` and 
 ## Goals
 
 - Switch between named working modes (`pure-chat`, `code-agent`, etc.) without editing `config.json`
-- Designate one profile as the subagent profile, applied automatically when `spawn_agent` fires
+- Any profile can be used for subagents — either explicitly via `spawn_agent`'s `profile` arg, or via a default declared in the `subagent` config block
 - No new files, no registration — all profiles live in `config.json`
 
 ---
@@ -36,7 +36,8 @@ Unknown profile names are a hard error. Available profile names are listed in th
   "show_tool_calls": true,
   "subagent": {
     "max_depth": 2,
-    "max_turns_default": 4
+    "max_turns_default": 4,
+    "default_profile": "lean"
   },
   "approval": {
     "default": "allow",
@@ -68,7 +69,6 @@ Unknown profile names are a hard error. Available profile names are listed in th
       }
     },
     "lean": {
-      "for_subagents": true,
       "openrouter_model": "openai/gpt-4o-mini",
       "temperature": 0.3,
       "max_tokens": 2048,
@@ -100,16 +100,17 @@ DEFAULTS → config.json base → selected profile → CLI flags
 
 ## Subagent profile
 
-Mark exactly one profile with `"for_subagents": true`. When `spawn_agent` fires, the child session resolves its config as:
+`spawn_agent` accepts an optional `profile` arg. The child session's config is resolved as:
 
 ```
-DEFAULTS → config.json base → profile where for_subagents == true
+DEFAULTS → config.json base → profile (explicit arg, else subagent.default_profile, else no overlay)
 ```
 
-The parent's active profile does **not** bleed into the child. The child always gets the base config overlaid with the designated subagent profile, regardless of what profile the parent is running under.
+The parent's active profile does **not** bleed into the child.
 
-- If no profile has `for_subagents: true`, subagents use the base config (no overlay).
-- If multiple profiles have `for_subagents: true`, that is a hard error at config load time.
+- `spawn_agent(task="...", profile="lean")` — uses the `lean` profile explicitly
+- `spawn_agent(task="...")` — falls back to `subagent.default_profile` if set, otherwise base config
+- An unknown profile name in either the arg or `subagent.default_profile` is a hard error
 
 ---
 
@@ -120,7 +121,7 @@ The parent's active profile does **not** bleed into the child. The child always 
 | `profiles` | object | top-level | Dict of profile name → partial config object |
 | `include_tools` | array of strings | top-level or profile | Allowlist of tool names to expose. All others are excluded. |
 | `exclude_tools` | array of strings | top-level or profile | Denylist of tool names. All others are exposed. Cannot be combined with `include_tools`. |
-| `for_subagents` | boolean | inside a profile | Designates this profile as the one used for child sessions spawned by `spawn_agent`. |
+| `subagent.default_profile` | string | `subagent` block | Profile to apply to child sessions when `spawn_agent` is called without an explicit `profile` arg. |
 
 `include_tools` and `exclude_tools` mirror the existing `--include-tools` / `--exclude-tools` CLI flags and share the same application logic.
 
