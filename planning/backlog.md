@@ -147,7 +147,8 @@ through the existing output-routing machinery.
 - New helper module `src/nugget/subagent.py` containing system-prompt
   assembly, context-rendering rules (inline string verbatim, dict→`json.dumps
   indent=2`, other→`repr`), the 32 KB byte-cap-with-sentinel truncation
-  behaviour, and a thread-local recursion-depth counter.
+  behaviour, and a `contextvars.ContextVar` recursion-depth counter (not
+  `threading.local` — nugget-server reuses threads across requests).
 - `context_vars` are resolved against the current turn's `bindings` dict
   (the same one `_routing.py` exposes for sink/`$var` handling). Unbound
   names → tool returns `{"error": "$<name> not bound"}` without spawning.
@@ -175,8 +176,12 @@ through the existing output-routing machinery.
   depth cap, unbound `context_var`, oversized context truncation, persistence
   to per-call JSON file, output routing pass-through (`$var`, `display`,
   `display:answer`).
-- The eight open questions in spec §8 are resolved during implementation and
-  the spec doc is updated in the same PR with the chosen answers.
+- Config merge: absent `subagent` block in user `config.json` is filled from
+  `Config.DEFAULTS` on load (existing merge pattern — no special handling
+  needed).
+- Persistence: `~/.local/share/nugget/sessions/<parent_id>/subagents/` is a
+  subdirectory; `Session.list_sessions()` globs top-level `*.json` only and
+  is unaffected.
 
 **Files likely touched:** new `src/nugget/tools/spawn_agent.py`, new
 `src/nugget/subagent.py`, `src/nugget/config.py`, `src/nugget/session.py`,
@@ -267,6 +272,8 @@ original eight. Bring the docs back into agreement with the source.
 - `tool_docs/TOOL_SPEC.md` Table of Contents updated.
 - The "Approval Rules" → "Tool gate in a module" example mentions the
   callable form used by `http_fetch` and `tasks` as a pattern.
+- `tool_docs/TOOL_SPEC.md` SSE Output Events table gains `subagent_call` and
+  `subagent_done` entries (fields per spec §3d).
 
 **Files likely touched:** `tool_docs/TOOL_SPEC.md`, `README.md`.
 

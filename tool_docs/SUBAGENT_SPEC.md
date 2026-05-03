@@ -162,6 +162,10 @@ SCHEMA = {
                 "return_thinking": {
                     "type": "boolean",
                     "description": "If true, include the child's chain-of-thought in the result. Default false."
+                },
+                "skill": {
+                    "type": "string",
+                    "description": "Reserved. Skill-bundle integration — accepted but ignored in v0.4."
                 }
             },
             "required": ["task"]
@@ -269,7 +273,9 @@ mode, web mode emits `tool_approval_request` with a `subagent: true` flag.
 ### 5c. Recursion depth
 
 A subagent may itself call `spawn_agent`. The harness tracks recursion depth in
-a thread-local. Defaults:
+a `contextvars.ContextVar` (not `threading.local` — `nugget-server` reuses
+threads across requests, so thread-locals would leak depth across sessions).
+Defaults:
 
 - `subagent.max_depth: 2` (parent → child → grandchild OK; great-grandchild
   denied).
@@ -317,40 +323,41 @@ All keys are optional; defaults baked into `Config.DEFAULTS`.
 
 ---
 
-## 8. Open questions / decisions needed
+## 8. Decisions
 
-These are deliberately not decided in this spec; each should be resolved
-during implementation, with the answer captured back here:
+1. **Backend reuse.** **Decision: reuse the parent's `Backend` instance.**
+   Simpler; keeps stateful auth in place. A fresh instance would require
+   re-reading config and re-authenticating with no benefit in the MVP.
 
-1. **Backend reuse.** Should the child reuse the parent's `Backend` instance
-   verbatim, or instantiate a fresh one? Reuse is simpler and keeps any
-   stateful auth in place; a fresh instance is more isolated. **Recommended:
-   reuse.**
-2. **Cost accounting.** Should subagent token usage roll up into the parent
-   session's totals (for the eventual status bar — NUG-007), be reported
-   separately, or both? **Recommended: both — separate `subagent_tokens`
-   field, plus included in grand total.**
-3. **Streaming inner events.** Default `false` in v0 to avoid UX confusion. Is
-   there a meaningful "summarised stream" (e.g. one-line "subagent: working on
-   X") that we could emit even with `stream_inner: false`?
-4. **Sharing memory.** Does the child have access to the SQLite memory tool
-   and DB? **Recommended: yes if `memory` is in the `tools` allowlist; no
-   otherwise.** No special isolation by default. Once agent configs (#12) land
-   they can scope the DB per-agent-config.
-5. **Pinned memories.** Are pinned memories injected into the child's system
-   prompt the same way they are for the parent? **Recommended: no — the child
-   gets only the explicitly-provided context. Pinned memories are a
-   parent-session concern.**
-6. **Failure mode when context exceeds cap.** Truncate (current spec), reject
-   the call, or summarise? **Recommended: truncate + sentinel line.** The
-   model can decide what to do with the partial information.
-7. **Concurrency.** Can a parent spawn multiple subagents in parallel within
-   one turn? Backend `run()` is currently single-threaded per session. **MVP:
-   no — sequential only. Parallel is a post-MVP optimisation.**
-8. **Skill integration.** When skills (#13) ship, `spawn_agent` should accept
-   a `skill: <name>` arg that resolves to a system prompt + tool allowlist
-   bundle. Spec the arg now (so adding it later is non-breaking) but defer
-   semantics.
+2. **Cost accounting.** **Decision: both** — a `subagent_tokens` field in the
+   per-call JSON, plus the child's usage rolled into the parent session total.
+   Needed for NUG-007 (status bar) to show accurate session-wide token counts.
+
+3. **Streaming inner events.** **Decision: no summarised stream in v0.** Only
+   `subagent_call` and `subagent_done` SSE events are emitted. Inner token /
+   tool_call / thinking events are suppressed. Revisit in v0.5 if users ask
+   for a "subagent: working…" indicator.
+
+4. **Sharing memory.** **Decision: child gets the memory tool only if `memory`
+   is in the `tools` allowlist.** No special isolation. Once agent configs
+   (#12) land they can scope the DB per-agent-config.
+
+5. **Pinned memories.** **Decision: not injected into the child.** The child
+   gets only the explicitly-provided `context` / `context_vars`. Pinned
+   memories are a parent-session concern.
+
+6. **Failure mode when context exceeds cap.** **Decision: truncate + sentinel
+   line** (`... [truncated, N bytes omitted]`). The model can decide what to
+   do with partial information; rejection would make large-payload distillation
+   impossible.
+
+7. **Concurrency.** **Decision: sequential only (MVP).** Backend `run()` is
+   single-threaded per session. Parallel sibling spawning is a post-MVP
+   optimisation.
+
+8. **Skill integration.** **Decision: add `skill` as an optional, ignored
+   field now** so that adding skill semantics later is non-breaking. See SCHEMA
+   in §3a. The field is accepted but has no effect in v0.4.
 
 ---
 

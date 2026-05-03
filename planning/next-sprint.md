@@ -103,13 +103,15 @@ The web smoke test (verify `subagent_call` / `subagent_done` events appear in
 the SSE stream) requires an open browser tab on `nugget-server`; leave it as
 a manual step in the PR description.
 
-### Open questions to settle in PR (must update spec §8)
-1. Backend reuse vs fresh instance.
-2. Token-cost roll-up to parent.
-3. Memory-tool / pinned-memory inheritance for the child.
-4. Concurrency — keep MVP sequential.
-5. Skill-arg shape (define now even if semantics deferred).
-6. Truncation vs reject vs summarise on context overflow.
+### Decisions captured in spec §8 (all resolved — no design round needed)
+1. Backend reuse — reuse parent instance.
+2. Cost accounting — separate `subagent_tokens` field + rolled into parent total.
+3. Streaming inner events — none in v0; only `subagent_call`/`subagent_done`.
+4. Memory sharing — child gets memory only if in `tools` allowlist.
+5. Pinned memories — not injected into child.
+6. Context overflow — truncate + sentinel line.
+7. Concurrency — sequential only (MVP).
+8. Skill arg — `skill` field in SCHEMA, ignored in v0.4.
 
 ### Estimate
 1.5–2 days. The recursion guard and per-call persistence are each ~2–3
@@ -204,7 +206,7 @@ grep -E "grep_search|http_fetch|jq|tasks|spawn_agent" README.md
 | Risk | Mitigation |
 |------|------------|
 | Spec §8 open questions snowball during implementation | Pre-commit to recommended answers in the spec (already drafted). Treat changes from those as part of the PR description, not new design rounds. |
-| Recursion depth bookkeeping interacts badly with thread-pool reuse in `nugget-server` | Use `contextvars.ContextVar`, not `threading.local`. Test with two concurrent web sessions both spawning subagents. |
+| Recursion depth bookkeeping interacts badly with thread-pool reuse in `nugget-server` | Use `contextvars.ContextVar` (decided; spec §5c updated). Test with two concurrent web sessions both spawning subagents. |
 | Bench engine doesn't support nested-arg path constraints, expanding NUG-016 scope | If this surfaces, drop the depth-cap and allowlist cases to assertions inside `tests/test_subagent_e2e.py` and keep the bench case minimal. |
 | Sprint slips past 2026-05-13 | NUG-015 alone is a respectable v0.4. NUG-016 can move to v0.4.1 if needed; NUG-017 should not slip (it's an hour). |
 
