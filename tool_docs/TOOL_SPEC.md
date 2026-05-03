@@ -3,7 +3,7 @@
 > **Repository:** [jamesbiederbeck/nugget](https://github.com/jamesbiederbeck/nugget)  
 > **Description:** A CLI chat interface for locally-hosted Gemma 4 models.  
 > **Language:** Python 3.11+ · **License:** MIT  
-> **Version:** 0.3.0
+> **Version:** 0.4.0
 
 ---
 
@@ -17,10 +17,15 @@
    - [get_datetime](#get_datetime)
    - [shell](#shell)
    - [filebrowser](#filebrowser)
+   - [grep_search](#grep_search)
+   - [http_fetch](#http_fetch)
+   - [jq](#jq)
+   - [tasks](#tasks)
    - [memory](#memory)
    - [wallabag](#wallabag)
    - [notify](#notify)
    - [render_output](#render_output)
+   - [spawn_agent](#spawn_agent)
 5. [Token Limits](#token-limits)
 6. [Approval Rules](#approval-rules)
 7. [Output Routing](#output-routing)
@@ -234,6 +239,8 @@ Each line is `data: <JSON>\n\n`. Event types:
 | `tool_call`     | `name: string`, `args: object`                 | Model is requesting a tool call          |
 | `tool_result`   | `name: string`, `result: object`               | Tool executed successfully               |
 | `tool_denied`   | `name: string`, `reason: string`               | Tool call blocked by approval policy     |
+| `subagent_call` | `task: string`, `tool_count: int`, `parent_depth: int` | A `spawn_agent` call is starting   |
+| `subagent_done` | `answer: string`, `tool_calls: int`, `finish_reason: string` | A `spawn_agent` call finished |
 | `done`          | `text: string`                                 | Final assembled response text            |
 | `error`         | `message: string`                              | Fatal error during generation            |
 
@@ -496,6 +503,234 @@ Browse and read the local filesystem.
 
 ---
 
+### `grep_search`
+
+Search files with [ripgrep](https://github.com/BurntSushi/ripgrep). Returns matching lines with file paths and line numbers. Faster and safer than using `shell` for code search.
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "grep_search",
+    "description": "Search for a pattern across files using ripgrep.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "pattern":        { "type": "string",  "description": "Search pattern (literal string or regex)" },
+        "path":           { "type": "string",  "description": "File or directory to search (default: cwd)" },
+        "include":        { "type": "string",  "description": "Glob to restrict file types, e.g. '*.py'" },
+        "case_sensitive": { "type": "boolean", "description": "If false (default), search is case-insensitive" },
+        "max_results":    { "type": "integer", "description": "Max matching lines to return (default 50)" }
+      },
+      "required": ["pattern"]
+    }
+  }
+}
+```
+
+**Input:**
+
+```json
+{ "pattern": "TODO", "path": "src/", "include": "*.py", "max_results": 20 }
+```
+
+**Output (success):**
+
+```json
+{
+  "pattern": "TODO",
+  "path": "src/",
+  "matches": ["src/nugget/session.py:42: # TODO: handle concurrent writes"],
+  "count": 1,
+  "truncated": false
+}
+```
+
+**Output (error):**
+
+```json
+{ "error": "ripgrep (rg) not found — install it or use the shell tool", "pattern": "TODO" }
+```
+
+**`truncated`** is `true` when the result count equals `max_results` and more matches may exist.
+
+**Approval gate:** `allow`
+
+---
+
+### `http_fetch`
+
+Fetch a URL and return the response body as text or parsed JSON. Uses `requests` with a 15-second timeout.
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "http_fetch",
+    "description": "Fetch a URL and return the response body as text or parsed JSON.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "url":       { "type": "string",  "description": "URL to fetch" },
+        "method":    { "type": "string",  "description": "HTTP method (default: GET)" },
+        "headers":   { "type": "object",  "description": "Additional request headers" },
+        "body":      { "type": "string",  "description": "Request body string (for POST/PUT)" },
+        "max_chars": { "type": "integer", "description": "Truncate text response to this many characters (default 8000)" },
+        "as_json":   { "type": "boolean", "description": "If true, parse response body as JSON and return under 'json' key" }
+      },
+      "required": ["url"]
+    }
+  }
+}
+```
+
+**Input:**
+
+```json
+{ "url": "https://httpbin.org/get", "as_json": true }
+```
+
+**Output (success):**
+
+```json
+{ "status": 200, "url": "https://httpbin.org/get", "json": { "origin": "1.2.3.4" } }
+```
+
+**Output (text):**
+
+```json
+{ "status": 200, "url": "https://example.com/", "content": "<html>...", "truncated": false }
+```
+
+**Output (error):**
+
+```json
+{ "error": "request timed out after 15s", "url": "https://slow.example.com/" }
+```
+
+**Approval gate:** Dynamic — `allow` for `GET`/`HEAD`; `ask` for all other methods (POST, PUT, DELETE, PATCH, etc.)
+
+---
+
+### `jq`
+
+Apply a [JMESPath](https://jmespath.org) query to JSON data. Accepts a raw JSON string or an already-decoded object (e.g. from a `$var` binding). Useful for slicing large tool payloads before displaying them.
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "jq",
+    "description": "Apply a JMESPath query to JSON data or a $var binding.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "data":  { "type": "string", "description": "JSON string or variable reference like $var" },
+        "query": { "type": "string", "description": "JMESPath expression, e.g. 'items[?status==`open`].id'" }
+      },
+      "required": ["data", "query"]
+    }
+  }
+}
+```
+
+**Input:**
+
+```json
+{ "data": "$search_results", "query": "matches[*].name" }
+```
+
+**Output (success):**
+
+```json
+{ "result": ["file1.py", "file2.py"], "query": "matches[*].name" }
+```
+
+**Output (error):**
+
+```json
+{ "error": "invalid JMESPath: ...", "query": "bad[expr" }
+```
+
+**Approval gate:** `allow`
+
+---
+
+### `tasks`
+
+Persistent task list backed by SQLite at `~/.local/share/nugget/tasks.db`. Tasks survive across sessions.
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "tasks",
+    "description": "Persistent task list. Operations: 'add', 'list', 'complete', 'update', 'delete'.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "operation": { "type": "string",  "description": "One of: 'add', 'list', 'complete', 'update', 'delete'" },
+        "text":      { "type": "string",  "description": "Task description (required for add; optional for update)" },
+        "id":        { "type": "integer", "description": "Task id (required for complete, update, delete)" },
+        "tag":       { "type": "string",  "description": "Project/group label for filtering" },
+        "status":    { "type": "string",  "description": "Filter for list: 'open' (default), 'done', or 'all'" }
+      },
+      "required": ["operation"]
+    }
+  }
+}
+```
+
+**Operations and examples:**
+
+| Operation  | Required fields | Optional fields |
+|------------|-----------------|-----------------|
+| `add`      | `text`          | `tag`           |
+| `list`     | —               | `tag`, `status` |
+| `complete` | `id`            | —               |
+| `update`   | `id`            | `text`, `tag`   |
+| `delete`   | `id`            | —               |
+
+**`add` output:**
+
+```json
+{ "id": 7, "text": "write tests", "tag": "nugget", "created_at": "2026-05-02T10:00:00+00:00" }
+```
+
+**`list` output:**
+
+```json
+{
+  "tasks": [
+    { "id": 7, "text": "write tests", "status": "open", "tag": "nugget", "created_at": "..." }
+  ]
+}
+```
+
+**`complete` output:**
+
+```json
+{ "id": 7, "ok": true, "status": "done" }
+```
+
+**`delete` output:**
+
+```json
+{ "id": 7, "deleted": true }
+```
+
+**Approval gate:** Dynamic — `ask` when `operation == "delete"`, otherwise `allow`.
+
+---
+
 ### `memory`
 
 Persistent key-value store backed by SQLite at `~/.local/share/nugget/memory.db`. Supports pinning memories into the system prompt.
@@ -709,6 +944,121 @@ Call any registered tool and route its result to a display sink, file, or variab
 
 ---
 
+### `spawn_agent`
+
+Spawn a focused child Nugget session to handle a delegated sub-task. The child runs the same `Backend.run()` loop with a fresh message history, a custom system prompt, optional injected context, and an optionally-narrowed tool allowlist. Returns the child's final answer.
+
+See [`tool_docs/SUBAGENT_SPEC.md`](SUBAGENT_SPEC.md) for the full architecture reference.
+
+**JSON Schema:**
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "spawn_agent",
+    "description": "Spawn a focused sub-session to handle a delegated task.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "description": "What the subagent should accomplish, in plain English."
+        },
+        "context": {
+          "type": "object",
+          "description": "Inline named context blobs injected into the child's system prompt."
+        },
+        "context_vars": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of turn-bound $var bindings to inject into the child's context."
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "Optional custom system prompt for the child."
+        },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tool name allowlist for the child. Default: empty (pure reasoning)."
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "Tool-loop iteration cap for the child (default 4, max 16)."
+        },
+        "return_thinking": {
+          "type": "boolean",
+          "description": "If true, include the child's chain-of-thought in the result."
+        },
+        "skill": {
+          "type": "string",
+          "description": "Reserved — accepted but ignored in v0.4."
+        }
+      },
+      "required": ["task"]
+    }
+  }
+}
+```
+
+**Input — pure reasoning:**
+
+```json
+{ "task": "What is the capital of France? Answer in one sentence." }
+```
+
+**Input — with context injection and tool allowlist:**
+
+```json
+{
+  "task": "Which file has the most TODO comments? Count by file and return the filename.",
+  "context_vars": ["matches"],
+  "tools": ["calculator"]
+}
+```
+
+**Output (success):**
+
+```json
+{
+  "answer": "The file with the most TODOs is src/nugget/tools/memory.py (10 occurrences).",
+  "tool_calls": 1,
+  "finish_reason": "stop",
+  "truncated_context": false
+}
+```
+
+**Output (with thinking):**
+
+```json
+{
+  "answer": "Paris.",
+  "tool_calls": 0,
+  "finish_reason": "stop",
+  "truncated_context": false,
+  "thinking": "The user asked about France..."
+}
+```
+
+**Output (depth limit):**
+
+```json
+{ "_denied": true, "reason": "subagent depth limit exceeded" }
+```
+
+**Key behaviours:**
+
+- `context_vars` resolves named turn-scoped `$var` bindings from the parent turn. An unbound name returns `{"error": "$name not bound"}` and the child is not spawned.
+- Context larger than `subagent.max_context_bytes` (default 32 KB) is truncated with a `[truncated, N bytes omitted]` sentinel.
+- Recursion is capped at `subagent.max_depth` (default 2). The depth counter propagates through `spawn_agent` calls via `contextvars.ContextVar`.
+- Each call is persisted to `~/.local/share/nugget/sessions/<parent_id>/subagents/<call_id>.json`.
+- SSE events `subagent_call` and `subagent_done` are emitted in web mode.
+
+**Approval gate:** `ask` (always prompts in CLI; override in `config.json` with `{"tool": "spawn_agent", "action": "allow"}` for autonomous workflows)
+
+---
+
 ## Token Limits
 
 Token limits are governed by the loaded model and the `ctx_size` passed to the backend server.
@@ -778,10 +1128,12 @@ Tool calls go through a three-step resolution. **First match wins.**
 APPROVAL = "ask"    # always ask
 APPROVAL = "deny"   # always deny
 
-# Dynamic gate (callable)
+# Dynamic gate (callable) — used by http_fetch and tasks
 def APPROVAL(args: dict) -> str:
     return "ask" if args.get("operation") == "delete" else "allow"
 ```
+
+The callable form receives the raw `args` dict before any substitution and before `execute()` is called. Return one of `"allow"`, `"deny"`, or `"ask"`.
 
 ### File-sink rules
 

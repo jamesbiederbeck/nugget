@@ -91,15 +91,39 @@ erDiagram
 The `test_case.target` field is a dot-path expression resolved against the
 parsed response at evaluation time:
 
-| Target                      | Resolves to                                      |
-|-----------------------------|--------------------------------------------------|
-| `tool_call[0].output`       | `output` routing arg of the first tool call      |
-| `tool_call[0].name`         | Name of the first tool called                    |
-| `tool_call[0].args.<key>`   | Arbitrary arg of the first tool call             |
-| `tool_call[1].output`       | `output` arg of the second tool call             |
-| `reasoning`                 | Thinking block text (null if absent)             |
-| `response`                  | Parsed final response text                       |
-| `message`                   | Full raw completion (thinking + tokens + text)   |
+| Target                           | Resolves to                                           |
+|----------------------------------|-------------------------------------------------------|
+| `tool_call[0].output`            | `output` routing arg of the first tool call           |
+| `tool_call[0].name`              | Name of the first tool called                         |
+| `tool_call[0].args.<key>`        | Arbitrary arg of the first tool call                  |
+| `tool_call[0].args.context_vars` | JSON array serialised, e.g. `["matches"]`             |
+| `tool_call[0].args.tools`        | JSON array, e.g. `["calculator"]`                     |
+| `tool_call[1].output`            | `output` arg of the second tool call                  |
+| `reasoning`                      | Thinking block text (null if absent)                  |
+| `response`                       | Parsed final response text                            |
+| `message`                        | Full raw completion (thinking + tokens + text)        |
+
+The `args.<key>` resolver supports nested dotted paths and `[N]` array
+indexing. Non-scalar values (arrays, objects) are returned as JSON strings
+so `regex` constraints can match inside them — e.g. `constraint_value =
+"matches"` with `target = "tool_call[0].args.context_vars"` passes when
+the serialised array contains the word `matches`.
+
+## Subagent cases
+
+`bench/cases/subagent.tsv` contains cases for the `spawn_agent` tool. These
+differ from regular tool cases in two ways:
+
+1. **Nested-arg targets** — `context_vars` and `tools` are arrays; their
+   targets use `tool_call[N].args.context_vars` (returns JSON, e.g.
+   `'["matches"]'`) rather than a scalar string. Use `regex` constraints to
+   assert membership (`constraint_value = "matches"`).
+
+2. **Model-intent-only** — the bench asserts that the model *chose* to call
+   `spawn_agent` with the right arguments. The child session is not actually
+   spawned during bench evaluation; `spawn_agent` is listed in the `tools`
+   column of the TSV to indicate availability but the child call is never
+   executed.
 
 ## Constraint types
 

@@ -84,6 +84,7 @@ nugget -v "what time is it"
 | `wallabag` | Manage a Wallabag reading list (save, search, retrieve articles) | allow |
 | `notify` | Send push notifications via Gotify | allow |
 | `render_output` | Call any tool and route its result to display, file, or a variable | allow |
+| `spawn_agent` | Spawn a focused child session to handle a delegated sub-task | ask |
 
 ```bash
 # Filter tools
