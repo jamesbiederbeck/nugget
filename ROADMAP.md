@@ -45,6 +45,8 @@ Items ordered by priority. "Requires" lists hard blockers (✓ = already done).
 | 15 | Semantic search | memory.db ✓ | — |
 | 16 | Bench: prompt-variant sweeping | bench ✓ | — |
 | 17 | Bench: flakiness report | bench ✓ | — |
+| 18 | Structured generation for tool calls | textgen backend ✓ | Eliminates hallucinated args (#19 complementary) |
+| 19 | Forced thinking injection + keyword triggers | system prompt ✓, bench ✓ | Structured generation (#18 complementary) |
 
 **Note:** Item #14 has been re-scoped. The `tool_docs/SUBAGENT_SPEC.md` MVP is
 self-contained and does NOT block on agent configs (#12) or skills (#13);
@@ -335,3 +337,84 @@ text.
   `.j2` prompt variants and compare pass rates in the DB
 - [ ] `--repeat` flakiness report — query DB for cases with mixed pass/fail
   across repeats and surface them as a stability table
+
+---
+
+## Structured generation for tool calls (#18)
+
+Grammar-constrained decoding applied during tool arg generation. The textgen
+backend knows the current tool's JSON schema at call time; this information can
+be used to restrict the token sampler to only valid arg keys and value types,
+making hallucinated keys (e.g. `return_thinking`) physically impossible to emit.
+
+**Motivation:** logprob probes on sessions b3077b8b and d0b46965 (see
+`planning/issue-3.md`) show `return_thinking` sampled at 87–94% confidence
+when the model decides to add an extra arg to `spawn_agent`. Temperature alone
+cannot suppress this; the token distribution must be masked at sampling time.
+
+**Implementation sketch:**
+
+- After the model emits `<|tool_call>call:<name>{`, parse the schema for `<name>`
+  from the tool registry.
+- Drive a streaming grammar state machine: at each token position within the arg
+  dict, compute the set of valid next tokens (key names, value types, delimiters)
+  and pass a logit bias mask to the completions endpoint.
+- `llama.cpp` / `text-generation-webui` expose `logit_bias` (token-id → additive
+  log-prob adjustment); setting non-valid tokens to `-inf` effectively masks them.
+- Fallback: if the model emits a stop token before closing the dict, re-prompt
+  with the partial args as context and a hard error prefix.
+
+**Unknowns:** whether `text-generation-webui`'s `/v1/completions` endpoint exposes
+`logit_bias` or requires grammar strings (llama.cpp `grammar` param). Needs a
+probe against the local server before design is locked.
+
+**Complementary to #19.** Structured gen prevents impossible tokens; forced
+thinking shifts the distribution toward the correct token before sampling.
+Together they address both ends of the compliance gap.
+
+---
+
+## Forced thinking injection + keyword triggers (#19)
+
+Inject a short reasoning prefix into the model turn just before critical decisions,
+steering token probabilities without retraining.
+
+**Motivation:** logprob probes (see `planning/issue-3.md`) show that at the
+arg-name decision point inside `spawn_agent`, the token `output` has only 12%
+probability vs `return_thinking` at 87%. A forced thinking block that names
+`output` explicitly is predicted to shift this dramatically — preliminary probes
+confirm this (see `planning/forced_thinking_probe.md`).
+
+**Two sub-features:**
+
+### Keyword-triggered context injection
+
+Detect patterns in user messages and prepend a reasoning example to the model's
+context before the completion call. The trigger is matched at the harness level
+(not by the model), so it is deterministic.
+
+Example triggers and injected thoughts:
+
+| User message pattern | Injected thinking fragment |
+|---|---|
+| `"route output of .* to .*"` | `"The user wants to pipe tool output. I can do this with render_output or by binding to $var and passing it as an arg. For example: render_output(tool_name='x', tool_args={...}, output='$tmp') then tool_y(input='$tmp')."` |
+| `"bind .* to \$\w+"` | `"I need to set output:'$<name>' on the tool call so the result is stored for later use."` |
+| `"spawn.*subagent.*bind"` | `"spawn_agent supports output:'$var' to bind the answer into a variable for the next call."` |
+
+Triggers are defined in config as regex → thinking fragment pairs, so users can
+add their own without a code change.
+
+### Forced stop + thinking before tool-arg close
+
+At the token level: after the model opens a tool call arg dict and has emitted
+the required args, intercept just before `}` and inject a constrained thinking
+step: "Have I included all routing args the user asked for?" Then resume sampling.
+
+This is the in-loop equivalent of CoT forcing — it costs one extra completion
+round-trip per tool call but can be gated behind a config flag
+(`"force_arg_review": true`).
+
+**Relationship to structured gen (#18):** #18 prevents the wrong token; #19
+shifts the distribution toward the right one. Both are needed for full compliance.
+#19 alone is implementable today against any backend. #18 requires backend
+cooperation (`logit_bias` or grammar support).

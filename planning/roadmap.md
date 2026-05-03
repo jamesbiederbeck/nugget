@@ -117,6 +117,21 @@ These ROADMAP items need design rounds before any ticket:
 
 These should not be turned into tickets until each has at least a one-page design note in `tool_docs/`.
 
+- **#18 — Structured generation for tool calls**: grammar-constrained decoding
+  at the token level; logit-bias or llama.cpp grammar masks hallucinated arg keys
+  out of the vocabulary during tool call generation. Motivated by logprob findings
+  in `planning/issue-3.md` — `return_thinking` samples at 87% confidence,
+  unreachable by temperature tuning. Requires a probe to confirm `text-generation-webui`
+  exposes `logit_bias` or `grammar` params. Design note needed before ticketing.
+
+- **#19 — Forced thinking injection + keyword triggers**: two mechanisms —
+  (a) keyword-triggered reasoning prefixes injected at the harness level on
+  pattern-matched user messages (deterministic, no model change), and (b) a
+  forced mid-generation stop-and-think step before tool arg close. Preliminary
+  logprob probes in `planning/forced_thinking_probe.md` show this can shift
+  `output` from 12% to dominant probability. Complementary to #18.
+  See `planning/issue-3.md` for the failure cases that motivate this.
+
 ---
 
 ## Bench enhancements (parallel track)
