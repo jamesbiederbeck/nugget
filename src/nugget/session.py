@@ -60,6 +60,20 @@ class Session:
             )
 
     @staticmethod
+    def load_subagents(parent_id: str, sessions_dir: Path) -> list[dict]:
+        """Return all persisted subagent call transcripts for a parent session."""
+        subdir = sessions_dir / parent_id / "subagents"
+        if not subdir.exists():
+            return []
+        results = []
+        for p in sorted(subdir.glob("*.json")):
+            try:
+                results.append(json.loads(p.read_text()))
+            except Exception:
+                pass
+        return results
+
+    @staticmethod
     def list_sessions(sessions_dir: Path) -> list[dict]:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         results = []

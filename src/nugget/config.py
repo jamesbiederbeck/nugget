@@ -48,6 +48,17 @@ DEFAULTS: dict[str, Any] = {
             {"tool": "memory", "args": {"operation": "delete"}, "action": "ask"},
         ],
     },
+    "subagent": {
+        "max_depth": 2,
+        "max_context_bytes": 32768,
+        "max_turns_default": 4,
+        "max_turns_cap": 16,
+        "stream_inner": False,
+        "default_system_prompt": (
+            "You are a focused subagent. Read the provided context and return a "
+            "concise answer to the task. Do not ask follow-up questions."
+        ),
+    },
 }
 
 

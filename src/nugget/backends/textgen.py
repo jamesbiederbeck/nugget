@@ -16,6 +16,7 @@ from ._routing import (
     _validate_sink,
     _route_tool_result,
 )
+from ..subagent import _tool_ctx
 
 # ── Jinja2 template env ──────────────────────────────────────────────────────
 
@@ -414,7 +415,11 @@ class TextgenBackend(Backend):
                 accumulated = ""
                 continue
 
-            result = tool_executor(name, substituted_args)
+            ctx_token = _tool_ctx.set({"backend": self, "bindings": bindings, "config": self.cfg})
+            try:
+                result = tool_executor(name, substituted_args)
+            finally:
+                _tool_ctx.reset(ctx_token)
 
             if isinstance(result, dict) and result.get("_denied"):
                 reason = result.get("reason", "denied")

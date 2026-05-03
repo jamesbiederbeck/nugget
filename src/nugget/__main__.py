@@ -17,6 +17,7 @@ from . import approval as approval_mod
 from . import commands as commands_mod
 from .commands import CommandContext
 from .tools.memory import get_pinned as _get_pinned
+from .subagent import _session_id as _subagent_session_id
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -233,6 +234,7 @@ def main() -> None:
                 streaming_started[0] = True
             display.print_token(tok)
 
+        sid_token = _subagent_session_id.set(session.id)
         try:
             text, thinking, tool_exchanges, _ = backend.run(
                 messages=session.messages,
@@ -250,6 +252,8 @@ def main() -> None:
                 sink_approval_prompt=sink_approval_prompt,
                 approval_config=cfg.approval_config(),
             )
+        finally:
+            _subagent_session_id.reset(sid_token)
         except BackendError as e:
             if streaming_started[0]:
                 display.print_assistant_end()

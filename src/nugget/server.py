@@ -24,6 +24,7 @@ from .backends import make_backend, BackendError
 from . import tools as tool_registry
 from . import approval as approval_mod
 from .tools.memory import get_pinned as _get_pinned
+from .subagent import _session_id as _subagent_session_id, _event_callbacks as _subagent_event_callbacks
 
 # ── App and lazy globals ─────────────────────────────────────────────────────
 
@@ -154,7 +155,18 @@ async def chat(session_id: str, req: ChatRequest):
     def on_tool_denied(name: str, reason: str) -> None:
         emit({"type": "tool_denied", "name": name, "reason": reason})
 
+    def on_subagent_call(*, task: str, tool_count: int, parent_depth: int) -> None:
+        emit({"type": "subagent_call", "task": task, "tool_count": tool_count, "parent_depth": parent_depth})
+
+    def on_subagent_done(*, answer: str, tool_calls: int, finish_reason: str | None) -> None:
+        emit({"type": "subagent_done", "answer": answer, "tool_calls": tool_calls, "finish_reason": finish_reason})
+
     def run_in_thread() -> None:
+        sid_token = _subagent_session_id.set(session.id)
+        cb_token = _subagent_event_callbacks.set({
+            "on_subagent_call": on_subagent_call,
+            "on_subagent_done": on_subagent_done,
+        })
         try:
             text, thinking, exchanges, _ = _get_backend().run(
                 messages=session.messages,
@@ -176,6 +188,8 @@ async def chat(session_id: str, req: ChatRequest):
         except Exception as e:
             emit({"type": "error", "message": f"Internal error: {e}"})
         finally:
+            _subagent_session_id.reset(sid_token)
+            _subagent_event_callbacks.reset(cb_token)
             asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
     threading.Thread(target=run_in_thread, daemon=True).start()
