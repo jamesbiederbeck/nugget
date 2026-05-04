@@ -257,6 +257,7 @@ class TextgenBackend(Backend):
     def _complete(self, prompt: str, stop: list[str]) -> tuple[str, str]:
         resp = self._post(prompt, stop)
         data = resp.json()
+        self.last_usage = data.get("usage") or None
         choice = data["choices"][0]
         return choice["text"], choice["finish_reason"]
 
@@ -282,6 +283,7 @@ class TextgenBackend(Backend):
         if self.cfg.debug:
             print(json.dumps({"url": url, "streaming": True}, indent=2))
 
+        self.last_usage = None
         accumulated = ""
         finish_reason = "stop"
         is_text_mode = False

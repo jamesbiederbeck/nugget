@@ -9,7 +9,9 @@ import argparse
 import asyncio
 import copy
 import json
+import logging
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,6 +29,8 @@ from .tools.memory import get_pinned as _get_pinned
 from .subagent import _session_id as _subagent_session_id, _event_callbacks as _subagent_event_callbacks
 
 # ── App and lazy globals ─────────────────────────────────────────────────────
+
+logger = logging.getLogger("nugget.server")
 
 app = FastAPI(title="nugget")
 
@@ -162,13 +166,21 @@ async def chat(session_id: str, req: ChatRequest):
         emit({"type": "subagent_done", "answer": answer, "tool_calls": tool_calls, "finish_reason": finish_reason})
 
     def run_in_thread() -> None:
+        backend = _get_backend()
+        backend_name = cfg.get("backend", "textgen")
+        model = getattr(backend, "_model", None) or cfg.model
+        logger.info(
+            "chat request  session=%s backend=%s model=%s input_chars=%d",
+            session.id, backend_name, model, len(req.message),
+        )
         sid_token = _subagent_session_id.set(session.id)
         cb_token = _subagent_event_callbacks.set({
             "on_subagent_call": on_subagent_call,
             "on_subagent_done": on_subagent_done,
         })
+        t0 = time.monotonic()
         try:
-            text, thinking, exchanges, _ = _get_backend().run(
+            text, thinking, exchanges, finish_reason = backend.run(
                 messages=session.messages,
                 tool_schemas=active_schemas,
                 tool_executor=_web_tool_executor,
@@ -180,12 +192,39 @@ async def chat(session_id: str, req: ChatRequest):
                 on_tool_response=on_tool_response,
                 on_tool_denied=on_tool_denied,
             )
+            elapsed = time.monotonic() - t0
+            usage = getattr(backend, "last_usage", None) or {}
+            stats = [
+                f"session={session.id}",
+                f"backend={backend_name}",
+                f"model={model}",
+                f"elapsed={elapsed:.2f}s",
+                f"tools={len(exchanges)}",
+                f"finish={finish_reason}",
+            ]
+            if usage.get("prompt_tokens") is not None:
+                stats.append(f"prompt_tokens={usage['prompt_tokens']}")
+            if usage.get("completion_tokens") is not None:
+                stats.append(f"completion_tokens={usage['completion_tokens']}")
+            if usage.get("total_tokens") is not None:
+                stats.append(f"total_tokens={usage['total_tokens']}")
+            logger.info("chat done  %s", "  ".join(stats))
             session.add_assistant(text, thinking=thinking, tool_calls=exchanges)
             session.save()
             emit({"type": "done", "text": text})
         except BackendError as e:
+            elapsed = time.monotonic() - t0
+            logger.warning(
+                "chat error  session=%s backend=%s elapsed=%.2fs error=%s",
+                session.id, backend_name, elapsed, e,
+            )
             emit({"type": "error", "message": str(e)})
         except Exception as e:
+            elapsed = time.monotonic() - t0
+            logger.exception(
+                "chat internal error  session=%s backend=%s elapsed=%.2fs",
+                session.id, backend_name, elapsed,
+            )
             emit({"type": "error", "message": f"Internal error: {e}"})
         finally:
             _subagent_session_id.reset(sid_token)

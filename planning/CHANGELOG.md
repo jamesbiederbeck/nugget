@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.2]
+
+### Added
+- Server request/response logging at INFO level: `nugget.server` logger emits one line on receipt of a chat request (session, backend, model, input chars) and one line on completion (elapsed time, tool call count, finish reason, and prompt/completion/total token counts when available). OpenRouter streaming now requests `stream_options: {include_usage: true}` to capture token counts; textgen non-streaming captures usage from the API response.
+- `Backend` ABC gains a `last_usage: dict | None` class attribute; backends populate it after each API call with token-count stats from the upstream response.
+
+---
+
 ## [0.4.1]
 
 ### Added

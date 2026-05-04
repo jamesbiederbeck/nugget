@@ -23,7 +23,13 @@ class Backend(abc.ABC):
                           "result", recording every tool call made
         finish_reason   — the terminal finish reason string from the
                           upstream API ("stop", "length", etc.), or None
+
+    After each `run()` call, `last_usage` is populated with token-count
+    stats from the upstream API when available (keys: prompt_tokens,
+    completion_tokens, total_tokens), or left as None.
     """
+
+    last_usage: dict | None = None
 
     @abc.abstractmethod
     def run(

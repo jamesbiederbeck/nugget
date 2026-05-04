@@ -119,6 +119,7 @@ class OpenRouterBackend(Backend):
         except requests.RequestException as e:
             raise BackendError(str(e)) from e
         data = resp.json()
+        self.last_usage = data.get("usage") or None
         choice = data["choices"][0]
         msg = choice["message"]
         text = msg.get("content") or ""
@@ -138,12 +139,14 @@ class OpenRouterBackend(Backend):
         reasoning content. Assembles partial tool-call-argument deltas across
         chunks. Returns (text, thinking, tool_calls_raw).
         """
+        self.last_usage = None
         payload: dict = {
             "model": self._model,
             "messages": oai_messages,
             "temperature": self.cfg.get("temperature", 0.7),
             "max_tokens": self.cfg.get("max_tokens", 2048),
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if tool_schemas:
             payload["tools"] = tool_schemas
@@ -169,6 +172,11 @@ class OpenRouterBackend(Backend):
             if not raw_line.startswith(b"data: "):
                 continue
             chunk = json.loads(raw_line[6:])
+            # Usage-only chunk sent before [DONE] when stream_options.include_usage is set
+            if not chunk.get("choices"):
+                if "usage" in chunk:
+                    self.last_usage = chunk["usage"]
+                continue
             choice = chunk["choices"][0]
             delta = choice.get("delta", {})
 
