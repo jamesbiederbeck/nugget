@@ -15,7 +15,8 @@ under five minutes.
 | [audit.md](audit.md) | Snapshot of the codebase: what's built, what's tested, what's drifted from docs, what's stubbed |
 | [roadmap.md](roadmap.md) | Strategic shaping — themes, v0.3 / v0.4 release framing, design-pending items |
 | [backlog.md](backlog.md) | Prioritised tickets (NUG-001…NUG-014) with acceptance criteria, effort, P-priority, labels |
-| [next-sprint.md](next-sprint.md) | The 4 highest-priority tickets (NUG-001, 002, 003, 010), fully scoped for immediate pickup — the v0.3 sprint plan |
+| [next-sprint.md](next-sprint.md) | The 4 highest-priority tickets (NUG-008, 011, 009, 004), fully scoped for immediate pickup — the v0.4 sprint plan |
+| [sprint-v0.3.md](sprint-v0.3.md) | Archived v0.3 sprint plan (NUG-001, 002, 003, 010) |
 | [issue-1.md](issue-1.md) | Standalone issue: `filebrowser` `cat` op only takes a single path — model must fan out to N tool calls to read N files, which burns the 16-iteration loop budget and looks like flakiness |
 
 ## How the IDs map to ROADMAP.md
@@ -36,6 +37,8 @@ under five minutes.
 | NUG-012 | #16 | Bench: prompt-variant sweeping |
 | NUG-013 | #17 | Bench: flakiness report |
 | NUG-014 | #15 | Semantic search over memory + sessions |
+
+| NUG-015 | — | `filebrowser cat` multi-path support |
 
 Items #4 (full hooks framework), #6 (MCP), #12–14 (agent configs / skills /
 subagents) are not ticketed yet — they need a design-doc round before they
