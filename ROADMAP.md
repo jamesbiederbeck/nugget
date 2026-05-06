@@ -34,7 +34,7 @@ Items ordered by priority. "Requires" lists hard blockers (✓ = already done).
 | 4 | Hooks framework | session ✓, tool system ✓ | Session title, git/file hooks |
 | 5 | Session title computation | hooks (#4), backend ✓ | Status bar title field |
 | 6 | MCP support | tool system ✓, Backend Protocol ✓ | External tool ecosystem |
-| 7 | Tool approvals in web UI | approval system ✓, SSE ✓ | — |
+| 7 | ~~Tool approvals in web UI~~ ✓ | approval system ✓, SSE ✓ | — |
 | 8 | Status bar — CLI + web | session title (#5) | Streaming thinking display |
 | 9 | Streaming thinking blocks | SSE ✓; status bar (#8) for CLI | — |
 | 10 | Tool toggles in web UI | web server ✓ | — |
@@ -47,6 +47,7 @@ Items ordered by priority. "Requires" lists hard blockers (✓ = already done).
 | 17 | Bench: flakiness report | bench ✓ | — |
 | 18 | Structured generation for tool calls | textgen backend ✓ | Eliminates hallucinated args (#19 complementary) |
 | 19 | Forced thinking injection + keyword triggers | system prompt ✓, bench ✓ | Structured generation (#18 complementary) |
+| 20 | ~~`render_output`-nested web approvals~~ ✓ | tool approvals in web UI (#7) ✓ | — |
 
 **Note:** Item #14 has been re-scoped. The `tool_docs/SUBAGENT_SPEC.md` MVP is
 self-contained and does NOT block on agent configs (#12) or skills (#13);

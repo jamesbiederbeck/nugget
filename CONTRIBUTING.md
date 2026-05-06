@@ -106,9 +106,24 @@ Optionally add `APPROVAL = "allow"` / `"deny"` / `"ask"` (or a callable) to set 
 
 Config lives at `~/.config/nugget/config.json` (created on first run). See [`tool_docs/CONFIG.md`](tool_docs/CONFIG.md) for the full key reference, JSON Schema, and annotated examples.
 
-## Releasing
+## Versioning
 
-The version field in `pyproject.toml` is the single source of truth. There is no `__version__` in the source — the CLI reads the installed package version at runtime via `importlib.metadata`.
+Nugget uses [Semantic Versioning](https://semver.org) — `MAJOR.MINOR.PATCH`. While the project is pre-1.0 (`0.y.z`), the following conventions apply:
+
+| Change type | Bump |
+|---|---|
+| Incompatible change to the CLI interface, config schema, session format, or backend API | **minor** (treated as breaking pre-1.0) |
+| New user-visible feature: new tool, new CLI flag, new config key, new endpoint | **minor** |
+| Bug fix, internal refactor, performance improvement, dependency update | **patch** |
+| Docs, tests, CI, or chore with no functional change | **none** — no version bump |
+
+**Rules:**
+- Take the highest-impact change in the batch to determine the bump. A mix of a new feature and a bug fix → **minor**.
+- The version in `pyproject.toml` is the single source of truth. There is no `__version__` in the source — the CLI reads it at runtime via `importlib.metadata`.
+- Bump the version and update `planning/CHANGELOG.md` (if present) in the same commit, placed last in the series: `chore: bump version to X.Y.Z`.
+- Do not bump the version for docs-only, test-only, or CI-only changesets.
+
+## Releasing
 
 **Steps to cut a release:**
 
