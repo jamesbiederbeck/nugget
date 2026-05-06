@@ -196,7 +196,7 @@ def main() -> None:
     def on_tool_routed(name: str, result: object, sink: str) -> None:
         # Routed results never enter the model's context, so always surface
         # them to the user regardless of cfg.show_tool_responses.
-        display.print_tool_response(name, result)
+        display.print_routed_output(name, result, sink)
 
     def on_tool_denied(name: str, reason: str) -> None:
         display.print_error(f"tool '{name}' not executed: {reason}")
@@ -252,8 +252,6 @@ def main() -> None:
                 sink_approval_prompt=sink_approval_prompt,
                 approval_config=cfg.approval_config(),
             )
-        finally:
-            _subagent_session_id.reset(sid_token)
         except BackendError as e:
             if streaming_started[0]:
                 display.print_assistant_end()
@@ -264,6 +262,8 @@ def main() -> None:
                 display.print_assistant_end()
             print()
             return
+        finally:
+            _subagent_session_id.reset(sid_token)
 
         if streaming_started[0]:
             display.print_assistant_end()
