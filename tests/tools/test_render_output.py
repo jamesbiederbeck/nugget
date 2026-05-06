@@ -85,12 +85,15 @@ def test_var_sink_returns_bound_stub():
 
 # ── no output (inline / backend-controlled) ───────────────────────────────────
 
-def test_no_output_returns_raw_result():
+def test_no_output_returns_wrapped_result():
+    # When output is omitted the backend handles routing; execute() returns a
+    # display-format wrapper so the display layer can render it correctly.
     result = execute({
         "tool_name": "calculator",
         "tool_args": {"expression": "2+2"},
     })
-    assert result["result"] == 4
+    assert "_display_format" in result
+    assert result["_content"]["result"] == 4
 
 
 # ── unknown wrapped tool ──────────────────────────────────────────────────────
@@ -117,7 +120,7 @@ def test_approval_denied_tool():
             "output": "display",
         })
     assert result["status"] == "error"
-    assert "approval denied" in result["reason"]
+    assert "blocked by approval policy" in result["reason"]
 
 
 def test_approval_ask_tool_is_denied():
@@ -130,7 +133,7 @@ def test_approval_ask_tool_is_denied():
             "output": "display",
         })
     assert result["status"] == "error"
-    assert "approval denied" in result["reason"]
+    assert "non-interactive" in result["reason"]
 
 
 # ── missing required arg ──────────────────────────────────────────────────────

@@ -7,11 +7,11 @@ Run:             nugget-server [--host HOST] [--port PORT]
 
 import argparse
 import asyncio
-import copy
 import json
 import logging
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +33,10 @@ from .subagent import _session_id as _subagent_session_id, _event_callbacks as _
 logger = logging.getLogger("nugget.server")
 
 app = FastAPI(title="nugget")
+
+# call_id → {"call_id", "tool", "args", "event", "approved", "reason"}
+_pending_approvals: dict[str, dict] = {}
+_pending_lock = threading.Lock()
 
 _cfg: Config | None = None
 _backend = None
@@ -66,25 +70,49 @@ def _build_system_prompt(cfg: Config) -> str:
     return "\n\n".join(parts)
 
 
-def _web_approval_config(cfg: Config) -> dict:
-    """Convert 'ask' → 'allow' since there's no TTY in web mode."""
-    ac = copy.deepcopy(cfg.approval_config())
-    if ac.get("default") == "ask":
-        ac["default"] = "allow"
-    for rule in ac.get("rules", []):
-        if rule.get("action") == "ask":
-            rule["action"] = "allow"
-    return ac
+def _make_web_ask(emit):
+    """Return a (name, args) -> (approved, reason) callable that emits an SSE approval
+    request and blocks until the user responds via POST /api/approvals/{call_id}/respond."""
+    def web_ask(name: str, args: dict) -> tuple[bool, str | None]:
+        call_id = str(uuid.uuid4())
+        ev = threading.Event()
+        with _pending_lock:
+            _pending_approvals[call_id] = {
+                "call_id": call_id,
+                "tool": name,
+                "args": args,
+                "event": ev,
+                "approved": None,
+                "reason": None,
+            }
+        emit({"type": "approval_required", "call_id": call_id, "name": name, "args": args})
+        ev.wait(timeout=300)
+        with _pending_lock:
+            entry = _pending_approvals.pop(call_id, None)
+        if not entry or not entry.get("approved"):
+            reason = (entry or {}).get("reason") or f"tool '{name}' denied by user"
+            return False, reason
+        return True, None
+    return web_ask
 
 
-def _web_tool_executor(name: str, args: dict) -> object:
-    cfg = _get_cfg()
-    approved, reason = approval_mod.check(
-        name, args, tool_registry.gate(name), _web_approval_config(cfg)
-    )
-    if not approved:
-        return {"_denied": True, "reason": reason}
-    return tool_registry.execute(name, args)
+def _make_web_tool_executor(emit):
+    """Return a tool executor that pauses on 'ask' and waits for web approval."""
+    web_ask = _make_web_ask(emit)
+
+    def executor(name: str, args: dict) -> object:
+        cfg = _get_cfg()
+        action = approval_mod._resolve_action(
+            name, args, tool_registry.gate(name), cfg.approval_config()
+        )
+        if action == "deny":
+            return {"_denied": True, "reason": f"tool '{name}' blocked by approval policy"}
+        if action == "ask":
+            approved, reason = web_ask(name, args)
+            if not approved:
+                return {"_denied": True, "reason": reason}
+        return tool_registry.execute(name, args)
+    return executor
 
 
 # ── Session API ───────────────────────────────────────────────────────────────
@@ -156,6 +184,9 @@ async def chat(session_id: str, req: ChatRequest):
     def on_tool_response(name: str, result: object) -> None:
         emit({"type": "tool_result", "name": name, "result": result})
 
+    def on_tool_routed(name: str, result: object, sink: str) -> None:
+        emit({"type": "tool_routed", "name": name, "result": result, "sink": sink})
+
     def on_tool_denied(name: str, reason: str) -> None:
         emit({"type": "tool_denied", "name": name, "reason": reason})
 
@@ -177,19 +208,21 @@ async def chat(session_id: str, req: ChatRequest):
         cb_token = _subagent_event_callbacks.set({
             "on_subagent_call": on_subagent_call,
             "on_subagent_done": on_subagent_done,
+            "web_ask": _make_web_ask(emit),
         })
         t0 = time.monotonic()
         try:
             text, thinking, exchanges, finish_reason = backend.run(
                 messages=session.messages,
                 tool_schemas=active_schemas,
-                tool_executor=_web_tool_executor,
+                tool_executor=_make_web_tool_executor(emit),
                 system_prompt=_build_system_prompt(cfg),
                 thinking_effort=cfg.thinking_effort,
                 on_token=on_token,
                 on_thinking=on_thinking,
                 on_tool_call=on_tool_call,
                 on_tool_response=on_tool_response,
+                on_tool_routed=on_tool_routed,
                 on_tool_denied=on_tool_denied,
             )
             elapsed = time.monotonic() - t0
@@ -245,6 +278,33 @@ async def chat(session_id: str, req: ChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Approval API ──────────────────────────────────────────────────────────────
+
+@app.get("/api/approvals/pending")
+async def list_pending_approvals():
+    with _pending_lock:
+        return [
+            {"call_id": v["call_id"], "tool": v["tool"], "args": v["args"]}
+            for v in _pending_approvals.values()
+        ]
+
+
+class ApprovalDecision(BaseModel):
+    decision: str  # "approve" or "deny"
+
+
+@app.post("/api/approvals/{call_id}/respond")
+async def respond_to_approval(call_id: str, body: ApprovalDecision):
+    with _pending_lock:
+        entry = _pending_approvals.get(call_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    entry["approved"] = body.decision == "approve"
+    entry["reason"] = None if entry["approved"] else f"tool '{entry['tool']}' denied by user"
+    entry["event"].set()
+    return {"ok": True}
 
 
 @app.post("/api/tools/reload")

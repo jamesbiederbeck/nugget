@@ -41,6 +41,24 @@ def print_tool_response(name: str, result: object) -> None:
     print()
 
 
+def _extract_display_text(result: object) -> str:
+    import json
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict) and isinstance(result.get("content"), str):
+        return result["content"]
+    return json.dumps(result, indent=2)
+
+
+def print_routed_output(name: str, result: object, sink: str) -> None:
+    if isinstance(result, dict) and "_display_format" in result:
+        result = result["_content"]
+    text = _extract_display_text(result)
+    print(f"{BOLD}{GREEN}← display:{RESET} {DIM}{name}{RESET}")
+    print(text)
+    print()
+
+
 def print_system_prompt(text: str) -> None:
     print(f"\n{DIM}{YELLOW}[system]{RESET}")
     for line in text.strip().splitlines():

@@ -148,6 +148,50 @@ function appendToolResult(bubble, name, result) {
   return block;
 }
 
+function extractDisplayPayload(result) {
+  let fmt = 'text';
+  let value = result;
+  if (result && typeof result === 'object' && '_display_format' in result) {
+    fmt = result._display_format;
+    value = result._content;
+  }
+  let text;
+  if (typeof value === 'string') {
+    text = value;
+  } else if (value && typeof value.content === 'string') {
+    text = value.content;
+  } else {
+    text = JSON.stringify(value, null, 2);
+  }
+  return { text, fmt };
+}
+
+function appendToolRouted(bubble, name, result, sink) {
+  const isDisplay = sink === 'display' || sink?.startsWith('display:');
+  if (isDisplay) {
+    const { text, fmt } = extractDisplayPayload(result);
+    const el = document.createElement('div');
+    el.className = 'routed-display';
+    if (fmt === 'markdown' && typeof marked !== 'undefined') {
+      el.innerHTML = marked.parse(text);
+    } else {
+      el.textContent = text;
+    }
+    bubble.appendChild(el);
+    return;
+  }
+  // Non-display sinks (file, $var) — show as a routed result block
+  const block = document.createElement('div');
+  block.className = 'tool-block';
+  block.dataset.block = 'tool-result';
+  block.innerHTML = `
+    <div class="tool-header tool-routed-header">⇒ <span class="tool-name">${escHtml(name)}</span> → ${escHtml(sink)}</div>
+    <div class="tool-body">${escHtml(typeof result === 'string' ? result : JSON.stringify(result, null, 2))}</div>
+  `;
+  bubble.appendChild(block);
+  return block;
+}
+
 function appendToolDenied(bubble, name, reason) {
   const block = document.createElement('div');
   block.className = 'tool-block';
@@ -158,6 +202,26 @@ function appendToolDenied(bubble, name, reason) {
   `;
   bubble.appendChild(block);
   return block;
+}
+
+function appendApprovalPanel(toolBlock, callId, toolName) {
+  const panel = document.createElement('div');
+  panel.className = 'approval-panel';
+  panel.innerHTML = `
+    <span class="approval-label">approve ${escHtml(toolName)}?</span>
+    <button class="approval-btn approve">Allow</button>
+    <button class="approval-btn deny">Deny</button>
+  `;
+  panel.querySelector('.approve').addEventListener('click', () => respondApproval(callId, 'approve', panel));
+  panel.querySelector('.deny').addEventListener('click', () => respondApproval(callId, 'deny', panel));
+  toolBlock.appendChild(panel);
+  return panel;
+}
+
+async function respondApproval(callId, decision, panel) {
+  panel.querySelector('.approve').disabled = true;
+  panel.querySelector('.deny').disabled = true;
+  await api('POST', `/api/approvals/${callId}/respond`, { decision });
 }
 
 function appendThinkingIndicator(bubble) {
@@ -187,6 +251,7 @@ async function sendMessage() {
   const indicator = appendThinkingIndicator(bubble);
   let thinkingBlock = null;
   let pendingThinking = null;
+  let lastToolCallBlock = null;
 
   try {
     const resp = await fetch(`/api/sessions/${currentSessionId}/chat`, {
@@ -213,7 +278,10 @@ async function sendMessage() {
           if (!line.startsWith('data: ')) continue;
           let event;
           try { event = JSON.parse(line.slice(6)); } catch { continue; }
-          handleEvent(event, bubble, contentEl, { thinkingBlock, set: v => thinkingBlock = v });
+          handleEvent(event, bubble, contentEl, {
+            thinkingBlock, set: v => thinkingBlock = v,
+            lastToolCallBlock, setToolBlock: v => lastToolCallBlock = v,
+          });
         }
       }
     }
@@ -227,7 +295,7 @@ async function sendMessage() {
   await loadSessions();
 }
 
-function handleEvent(event, bubble, contentEl, thinkingRef) {
+function handleEvent(event, bubble, contentEl, refs) {
   if (event.type === 'token') {
     bubble.querySelector('.thinking-indicator')?.remove();
     contentEl.textContent += event.text;
@@ -235,23 +303,35 @@ function handleEvent(event, bubble, contentEl, thinkingRef) {
   } else if (event.type === 'thinking') {
     bubble.querySelector('.thinking-indicator')?.remove();
     let block;
-    if (!thinkingRef.thinkingBlock) {
+    if (!refs.thinkingBlock) {
       block = appendThinkingBlock(bubble, event.text);
-      thinkingRef.set(block);
+      refs.set(block);
     } else {
-      block = thinkingRef.thinkingBlock;
+      block = refs.thinkingBlock;
       block.querySelector('.thinking-content').textContent += event.text;
     }
     bubble.insertBefore(block, contentEl);
     scrollToBottom();
   } else if (event.type === 'tool_call') {
     bubble.querySelector('.thinking-indicator')?.remove();
-    appendToolCall(bubble, event.name, event.args);
+    const block = appendToolCall(bubble, event.name, event.args);
+    refs.setToolBlock(block);
+    scrollToBottom();
+  } else if (event.type === 'approval_required') {
+    if (refs.lastToolCallBlock) {
+      appendApprovalPanel(refs.lastToolCallBlock, event.call_id, event.name);
+      scrollToBottom();
+    }
+  } else if (event.type === 'tool_routed') {
+    refs.lastToolCallBlock?.querySelector('.approval-panel')?.remove();
+    appendToolRouted(bubble, event.name, event.result, event.sink);
     scrollToBottom();
   } else if (event.type === 'tool_result') {
+    refs.lastToolCallBlock?.querySelector('.approval-panel')?.remove();
     appendToolResult(bubble, event.name, event.result);
     scrollToBottom();
   } else if (event.type === 'tool_denied') {
+    refs.lastToolCallBlock?.querySelector('.approval-panel')?.remove();
     appendToolDenied(bubble, event.name, event.reason);
     scrollToBottom();
   } else if (event.type === 'error') {

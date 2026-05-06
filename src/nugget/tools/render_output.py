@@ -21,7 +21,8 @@ Approval note: only the wrapped tool's own APPROVAL gate is consulted here.
 """
 
 from ..backends._routing import _validate_sink, _route_tool_result
-from ..approval import check_file_sink
+from ..approval import check_file_sink, check as approval_check, _resolve_action
+from ..subagent import _event_callbacks
 from .. import tools as tool_registry
 
 SCHEMA = {
@@ -55,12 +56,20 @@ SCHEMA = {
                         "'display' (show to user), "
                         "'display:<jmespath>' (extract field then show), "
                         "'file:<path>' (write JSON to file), "
-                        "'$name' (bind to a variable). "
-                        "Defaults to 'display' when omitted."
+                        "'$name' (bind to a variable)."
+                    ),
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "text"],
+                    "description": (
+                        "Rendering hint for display sinks. "
+                        "'markdown' renders rich formatting (default). "
+                        "'text' renders as plain text."
                     ),
                 },
             },
-            "required": ["tool_name", "tool_args"],
+            "required": ["tool_name", "tool_args", "output"],
         },
     },
 }
@@ -76,6 +85,7 @@ def execute(args: dict) -> dict:
     # `output` as a meta-arg and will handle routing itself; in that case
     # this defaults to None and the raw result is returned inline.
     output = args.get("output")
+    fmt = args.get("format", "markdown")
 
     # ── Validate inputs ──────────────────────────────────────────────────────
     if not tool_name:
@@ -95,18 +105,28 @@ def execute(args: dict) -> dict:
 
     # ── Check approval for the wrapped tool (gate only, no config rules) ─────
     gate = tool_registry.gate(tool_name)
-    if gate is not None:
-        action = gate(tool_args) if callable(gate) else gate
-        if action in ("deny", "ask"):
-            return {"status": "error", "reason": f"tool '{tool_name}' approval denied"}
+    action = _resolve_action(tool_name, tool_args, gate, {})
+    if action == "deny":
+        return {"status": "error", "reason": f"tool '{tool_name}' blocked by approval policy"}
+    if action == "ask":
+        cb = _event_callbacks.get() or {}
+        web_ask = cb.get("web_ask")
+        if web_ask is not None:
+            approved, reason = web_ask(tool_name, tool_args)
+        else:
+            approved, reason = approval_check(tool_name, tool_args, gate, {})
+        if not approved:
+            return {"status": "error", "reason": reason}
 
     # ── Execute the wrapped tool ─────────────────────────────────────────────
     result = tool_registry.execute(tool_name, tool_args)
 
     # ── Route result ─────────────────────────────────────────────────────────
     if output is None:
-        # Backend will handle routing via the outer meta-arg sink.
-        return result
+        # Backend handles routing via the outer sink. Wrap with format hint
+        # so the display layer knows how to render — the model only sees the
+        # {"status": "ok", "output": "sent to display"} stub, never this wrapper.
+        return {"_display_format": fmt, "_content": result}
 
     bindings: dict = {}
     return _route_tool_result(
