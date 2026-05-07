@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0]
+
+### Added
+- **Interactive tool approvals in web UI (roadmap #7):** `"ask"`-gated tools now pause the request and emit an `approval_required` SSE event. The frontend injects Allow/Deny buttons into the tool-call block; the user's response is sent via `POST /api/approvals/{call_id}/respond`, which unblocks the tool executor. `GET /api/approvals/pending` lists outstanding approvals.
+- **`render_output` display formatting:** New optional `format` arg (`"markdown"` | `"text"`, default `"markdown"`). When `output` is omitted the tool wraps its result in a `{_display_format, _content}` envelope; the CLI renders it with `print_routed_output()`, and the web UI renders markdown via marked.js for display sinks.
+- **`render_output`-nested web approvals (roadmap #20):** `ask`-gated inner tools called through `render_output` now route through the same web approval flow instead of being silently denied.
+- `on_tool_routed` callback wired through server SSE (`tool_routed` event type).
+- marked.js (v14, CDN) added to web UI for markdown rendering.
+
+### Fixed
+- `__main__.py`: `finally` block for subagent context-var reset was placed before `except` clauses, preventing `BackendError` and generic exceptions from reaching their handlers. Reordered so `except` precedes `finally`.
+
+---
+
 ## [0.4.2]
 
 ### Added
