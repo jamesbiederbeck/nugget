@@ -68,6 +68,10 @@ SCHEMA = {
                     "type": "boolean",
                     "description": "If true, include the child's chain-of-thought in the result. Default false.",
                 },
+                "profile": {
+                    "type": "string",
+                    "description": "Named config profile to apply to the child session. Overrides subagent.default_profile.",
+                },
                 "skill": {
                     "type": "string",
                     "description": "Reserved. Skill-bundle integration — accepted but ignored in v0.4.",
@@ -84,6 +88,7 @@ APPROVAL = "ask"
 def execute(args: dict) -> dict:
     from .. import tools as tool_registry
     from .. import approval as approval_mod
+    from ..backends import make_backend
 
     task = args.get("task", "").strip()
     if not task:
@@ -105,6 +110,18 @@ def execute(args: dict) -> dict:
     if current_depth >= max_depth:
         return {"_denied": True, "reason": "subagent depth limit exceeded"}
 
+    # ── Resolve child config (profile takes precedence over default_profile) ─
+    explicit_profile = args.get("profile")
+    default_profile = config.get("subagent", {}).get("default_profile")
+    child_profile = explicit_profile or default_profile
+
+    if child_profile:
+        try:
+            config = config.child_config(child_profile)
+        except ValueError as e:
+            return {"error": str(e)}
+        backend = make_backend(config)
+
     # ── Resolve context_vars from parent bindings ────────────────────────────
     context: dict = dict(args.get("context") or {})
     for var_name in (args.get("context_vars") or []):
@@ -122,10 +139,14 @@ def execute(args: dict) -> dict:
         task, context, base_prompt, max_context_bytes
     )
 
-    # ── Build child tool schemas (allowlist) ─────────────────────────────────
-    allowed_tools: list[str] | None = args.get("tools") or None
-    if allowed_tools is not None:
-        child_schemas = tool_registry.schemas(include=allowed_tools)
+    # ── Build child tool schemas ──────────────────────────────────────────────
+    explicit_tools: list[str] | None = args.get("tools") or None
+    if explicit_tools is not None:
+        child_schemas = tool_registry.schemas(include=explicit_tools)
+    elif config.get("include_tools"):
+        child_schemas = tool_registry.schemas(include=config.get("include_tools"))
+    elif config.get("exclude_tools"):
+        child_schemas = tool_registry.schemas(exclude=config.get("exclude_tools"))
     else:
         child_schemas = []
 
@@ -213,7 +234,7 @@ def execute(args: dict) -> dict:
                 "elapsed_ms": elapsed_ms,
                 "task": task,
                 "system_prompt": child_system_prompt,
-                "tool_allowlist": allowed_tools,
+                "tool_allowlist": explicit_tools,
                 "truncated_context": truncated,
                 "messages": [
                     {"role": "user", "content": task},

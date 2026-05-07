@@ -63,13 +63,49 @@ DEFAULTS: dict[str, Any] = {
 
 
 class Config:
-    def __init__(self, overrides: dict[str, Any] | None = None):
+    def __init__(self, overrides: dict[str, Any] | None = None, profile: str | None = None):
         self._data = dict(DEFAULTS)
+        self._raw_file_data: dict[str, Any] = {}
+        self._profiles: dict[str, dict] = {}
+
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE) as f:
-                self._data.update(json.load(f))
+                raw = json.load(f)
+            self._profiles = raw.pop("profiles", {})
+            self._raw_file_data = raw
+            self._data.update(raw)
+
+        if profile is not None:
+            if profile not in self._profiles:
+                available = sorted(self._profiles.keys())
+                msg = f"unknown profile {profile!r}"
+                if available:
+                    msg += f"; available: {', '.join(available)}"
+                raise ValueError(msg)
+            self._data.update(self._profiles[profile])
+
         if overrides:
             self._data.update(overrides)
+
+        if self._data.get("include_tools") and self._data.get("exclude_tools"):
+            raise ValueError("include_tools and exclude_tools cannot both be set")
+
+    def child_config(self, profile: str | None = None) -> "Config":
+        """Build a child config: DEFAULTS → file base → profile (no CLI flag inheritance)."""
+        if profile is not None and profile not in self._profiles:
+            available = sorted(self._profiles.keys())
+            msg = f"unknown profile {profile!r}"
+            if available:
+                msg += f"; available: {', '.join(available)}"
+            raise ValueError(msg)
+        child = Config.__new__(Config)
+        child._raw_file_data = self._raw_file_data
+        child._profiles = self._profiles
+        child._data = dict(DEFAULTS)
+        child._data.update(self._raw_file_data)
+        if profile is not None:
+            child._data.update(self._profiles[profile])
+        return child
 
     def __getattr__(self, key: str) -> Any:
         try:

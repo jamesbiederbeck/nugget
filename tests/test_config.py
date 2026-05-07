@@ -76,3 +76,97 @@ def test_sessions_path_created(tmp_config_file, tmp_path):
     path = cfg.sessions_path()
     assert path.exists()
     assert path.is_dir()
+
+
+# ── Profile tests ─────────────────────────────────────────────────────────────
+
+_PROFILE_CONFIG = {
+    "temperature": 0.7,
+    "profiles": {
+        "lean": {
+            "temperature": 0.3,
+            "max_tokens": 512,
+        },
+        "strict": {
+            "approval": {"default": "ask", "rules": []},
+            "temperature": 0.1,
+        },
+    },
+}
+
+
+def test_profile_applied(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config(profile="lean")
+    assert cfg.temperature == 0.3
+    assert cfg.max_tokens == 512
+
+
+def test_profile_unknown_raises(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    with pytest.raises(ValueError, match="unknown profile"):
+        Config(profile="nonexistent")
+
+
+def test_profile_unknown_lists_available(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    with pytest.raises(ValueError, match="lean"):
+        Config(profile="nonexistent")
+
+
+def test_profile_cli_flags_win(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config({"temperature": 0.99}, profile="lean")
+    assert cfg.temperature == 0.99
+    assert cfg.max_tokens == 512
+
+
+def test_profile_nested_block_replacement(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config(profile="strict")
+    assert cfg.approval_config()["default"] == "ask"
+    assert cfg.approval_config()["rules"] == []
+
+
+def test_no_profile_uses_base(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config()
+    assert cfg.temperature == 0.7
+
+
+def test_profiles_stripped_from_data(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config()
+    assert cfg.get("profiles") is None
+
+
+def test_child_config_no_profile(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    parent = Config({"temperature": 0.99}, profile="lean")
+    child = parent.child_config()
+    assert child.temperature == 0.7  # file base, not parent CLI flag or profile
+
+
+def test_child_config_with_profile(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    parent = Config()
+    child = parent.child_config("lean")
+    assert child.temperature == 0.3
+    assert child.max_tokens == 512
+
+
+def test_child_config_unknown_profile(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    parent = Config()
+    with pytest.raises(ValueError, match="unknown profile"):
+        parent.child_config("ghost")
+
+
+def test_include_exclude_mutually_exclusive(tmp_config_file):
+    tmp_config_file.write_text(json.dumps({
+        "profiles": {
+            "bad": {"include_tools": ["a"], "exclude_tools": ["b"]},
+        }
+    }))
+    with pytest.raises(ValueError, match="include_tools and exclude_tools"):
+        Config(profile="bad")

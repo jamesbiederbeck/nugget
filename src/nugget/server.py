@@ -330,14 +330,18 @@ def main() -> None:
     p.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
     p.add_argument("--backend", metavar="NAME", help="Backend to use (e.g. openrouter)")
     p.add_argument("--model", metavar="MODEL", help="Model to use (e.g. google/gemma-4-31b-it)")
+    p.add_argument("--profile", metavar="NAME", help="Named config profile to activate")
     args = p.parse_args()
 
-    if args.backend or args.model:
-        cfg = _get_cfg()
+    if args.profile or args.backend or args.model:
+        from .config import Config as _Config
+        global _cfg
+        overrides = {}
         if args.backend:
-            cfg._data["backend"] = args.backend
+            overrides["backend"] = args.backend
         if args.model:
-            cfg._data["openrouter_model"] = args.model
+            overrides["openrouter_model"] = args.model
+        _cfg = _Config(overrides or None, profile=args.profile)
 
     print(f"nugget server → http://{args.host}:{args.port}")
     uvicorn.run("nugget.server:app", host=args.host, port=args.port, reload=False)

@@ -39,6 +39,7 @@ def make_parser() -> argparse.ArgumentParser:
     tg.add_argument("--exclude-tools", metavar="t1,t2",
                     help="Exclude these tools (comma-separated)")
     tg.add_argument("--list-tools", action="store_true", help="List available tools and exit")
+    p.add_argument("--profile", metavar="NAME", help="Named config profile to activate")
 
     # Thinking
     thg = p.add_argument_group("thinking")
@@ -137,13 +138,25 @@ def main() -> None:
         if val is not None:
             overrides[flag] = val
 
-    cfg = Config(overrides)
+    cfg = Config(overrides, profile=args.profile)
 
     thinking_effort = resolve_thinking_effort(args, cfg)
 
     # ── Tool schema selection ────────────────────────────────────────────────
-    include = [t.strip() for t in args.include_tools.split(",")] if args.include_tools else None
-    exclude = [t.strip() for t in args.exclude_tools.split(",")] if args.exclude_tools else None
+    if args.include_tools:
+        include = [t.strip() for t in args.include_tools.split(",")]
+    elif cfg.get("include_tools"):
+        include = cfg.get("include_tools")
+    else:
+        include = None
+
+    if args.exclude_tools:
+        exclude = [t.strip() for t in args.exclude_tools.split(",")]
+    elif cfg.get("exclude_tools"):
+        exclude = cfg.get("exclude_tools")
+    else:
+        exclude = None
+
     active_schemas = tool_registry.schemas(include=include, exclude=exclude)
 
     # ── Session ──────────────────────────────────────────────────────────────
