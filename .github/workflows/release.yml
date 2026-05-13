@@ -20,6 +20,9 @@ jobs:
       - name: Set up Python 3.11
         run: uv python install 3.11
 
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
       - name: Run tests
         run: uv run --python 3.11 --extra dev pytest
 
