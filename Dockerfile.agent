@@ -1,0 +1,12 @@
+FROM git.hiddencove.xyz/victor/dind_runner:latest
+
+WORKDIR /app
+
+COPY pyproject.toml .
+COPY src/ src/
+
+RUN pip install --no-cache-dir ".[web]"
+
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "-m", "nugget"]

@@ -1,0 +1,91 @@
+name: Build Images
+run-name: ${{ gitea.actor }} built images
+
+on:
+  push:
+    paths-ignore:
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'ROADMAP.md'
+      - 'tool_docs/**'
+
+jobs:
+  Build-Images:
+    runs-on: ubuntu-latest
+    container:
+      image: git.hiddencove.xyz/victor/dind_runner:latest
+      volumes:
+        - toolcache:/toolcache
+    env:
+      RUNNER_TOOL_CACHE: /toolcache
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Login to Gitea registry
+        uses: docker/login-action@v3
+        with:
+          registry: git.hiddencove.xyz
+          username: ${{ vars.GITEAUSERNAME }}
+          password: ${{ secrets.GITEAPASSWORD }}
+
+      - name: Notify build start
+        uses: https://git.hiddencove.xyz/actions/gotify@main
+        with:
+          url: "https://gotify.victor.so"
+          token: "${{ secrets.GOTIFY_TOKEN }}"
+          title: "Build Started — ${{ gitea.repository }}"
+          message: "${{ gitea.ref }} @ ${{ gitea.sha }}"
+
+      # --- nugget (regular) ---
+
+      - name: Docker Meta (nugget)
+        id: meta-nugget
+        uses: docker/metadata-action@v5
+        with:
+          images: git.hiddencove.xyz/${{ gitea.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable=${{ gitea.ref == 'refs/heads/main' }}
+
+      - name: Build and push nugget
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          tags: ${{ steps.meta-nugget.outputs.tags }}
+          push: true
+
+      # --- nugget-agent (dind_runner base) ---
+
+      - name: Docker Meta (nugget-agent)
+        id: meta-agent
+        uses: docker/metadata-action@v5
+        with:
+          images: git.hiddencove.xyz/victor/nugget-agent
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable=${{ gitea.ref == 'refs/heads/main' }}
+
+      - name: Build and push nugget-agent
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.agent
+          tags: ${{ steps.meta-agent.outputs.tags }}
+          push: true
+
+      - name: Notify build done
+        uses: https://git.hiddencove.xyz/actions/gotify@main
+        with:
+          url: "https://gotify.victor.so"
+          token: "${{ secrets.GOTIFY_TOKEN }}"
+          title: "Build Finished — ${{ gitea.repository }}"
+          message: "${{ gitea.ref }} @ ${{ gitea.sha }} — status: ${{ job.status }}"
