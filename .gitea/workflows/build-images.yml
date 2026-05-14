@@ -33,7 +33,7 @@ jobs:
       - name: Notify build start
         uses: https://git.hiddencove.xyz/actions/gotify@main
         with:
-          url: "https://gotify.hiddencove.xyx"
+          url: "https://gotify.hiddencove.xyz"
           token: "${{ secrets.GOTIFY_TOKEN }}"
           title: "Build Started — ${{ gitea.repository }}"
           message: "${{ gitea.ref }} @ ${{ gitea.sha }}"
