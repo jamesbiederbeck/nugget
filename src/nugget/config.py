@@ -84,6 +84,10 @@ class Config:
                 raise ValueError(msg)
             self._data.update(self._profiles[profile])
 
+        env_api_url = os.environ.get("NUGGET_API_URL")
+        if env_api_url:
+            self._data["api_url"] = env_api_url
+
         if overrides:
             self._data.update(overrides)
 
