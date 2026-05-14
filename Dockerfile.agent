@@ -5,7 +5,8 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY src/ src/
 
-RUN python -m pip install --no-cache-dir ".[web]"
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    python -m pip install --no-cache-dir ".[web]"
 
 ENV PYTHONUNBUFFERED=1
 
