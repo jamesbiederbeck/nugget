@@ -144,6 +144,34 @@ def dispatch(raw: str, ctx: CommandContext) -> str | None:
         ctx.cfg._data["show_thinking"] = not current
         display.print_dim(f"Thinking display {'on' if not current else 'off'}.")
 
+    elif cmd == "/profile":
+        if not arg:
+            profiles = sorted(ctx.cfg._profiles.keys())
+            if not profiles:
+                display.print_dim("No profiles defined.")
+            else:
+                for p in profiles:
+                    marker = f" {display.CYAN}*{display.RESET}" if p == ctx.cfg._active_profile else ""
+                    display.print_dim(f"  {p}{marker}")
+        else:
+            try:
+                ctx.cfg.apply_profile(
+                    arg,
+                    cli_overrides=ctx.cli_overrides,
+                    cli_include=ctx.cli_include,
+                    cli_exclude=ctx.cli_exclude,
+                )
+            except ValueError as e:
+                display.print_error(str(e))
+                return None
+            from . import tools as tool_registry
+            from .backends import make_backend
+            inc = ctx.cli_include or ctx.cfg.get("include_tools")
+            exc = ctx.cli_exclude or ctx.cfg.get("exclude_tools")
+            ctx.active_schemas_cell[0] = tool_registry.schemas(include=inc, exclude=exc)
+            ctx.backend_cell[0] = make_backend(ctx.cfg)
+            display.print_dim(f"Switched to profile: {arg}")
+
     else:
         display.print_error(f"Unknown command: {cmd}  (try /help)")
 

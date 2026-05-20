@@ -170,3 +170,39 @@ def test_include_exclude_mutually_exclusive(tmp_config_file):
     }))
     with pytest.raises(ValueError, match="include_tools and exclude_tools"):
         Config(profile="bad")
+
+
+def test_apply_profile_switches_values(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config()
+    cfg.apply_profile("lean")
+    assert cfg.temperature == 0.3
+    assert cfg.max_tokens == 512
+    assert cfg._active_profile == "lean"
+
+
+def test_apply_profile_cli_overrides_win(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config()
+    cfg.apply_profile("lean", cli_overrides={"temperature": 0.99})
+    assert cfg.temperature == 0.99   # CLI wins
+    assert cfg.max_tokens == 512     # profile still applies
+
+
+def test_apply_profile_unknown_raises(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config()
+    with pytest.raises(ValueError, match="unknown profile"):
+        cfg.apply_profile("ghost")
+
+
+def test_active_profile_set_on_init(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config(profile="lean")
+    assert cfg._active_profile == "lean"
+
+
+def test_active_profile_none_by_default(tmp_config_file):
+    tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
+    cfg = Config()
+    assert cfg._active_profile is None

@@ -8,7 +8,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS: dict[str, Any] = {
     "backend": "textgen",
-    "api_url": "http://127.0.0.1:5000",
+    "api_url": "http://127.0.0.1:5000",  # overridable via NUGGET_API_URL env var or --api-url
     "model": "gemma-4-E4B-it-uncensored-Q4_K_M.gguf",
     "temperature": 0.7,
     "max_tokens": 2048,
@@ -75,6 +75,7 @@ class Config:
             self._raw_file_data = raw
             self._data.update(raw)
 
+        self._active_profile: str | None = profile
         if profile is not None:
             if profile not in self._profiles:
                 available = sorted(self._profiles.keys())
@@ -105,11 +106,39 @@ class Config:
         child = Config.__new__(Config)
         child._raw_file_data = self._raw_file_data
         child._profiles = self._profiles
+        child._active_profile = profile
         child._data = dict(DEFAULTS)
         child._data.update(self._raw_file_data)
         if profile is not None:
             child._data.update(self._profiles[profile])
         return child
+
+    def apply_profile(
+        self,
+        name: str,
+        cli_overrides: dict | None = None,
+        cli_include: list | None = None,
+        cli_exclude: list | None = None,
+    ) -> None:
+        """Re-apply DEFAULTS → file base → profile → cli_overrides in place."""
+        if name not in self._profiles:
+            available = sorted(self._profiles.keys())
+            msg = f"unknown profile {name!r}"
+            if available:
+                msg += f"; available: {', '.join(available)}"
+            raise ValueError(msg)
+        candidate = dict(DEFAULTS)
+        candidate.update(self._raw_file_data)
+        candidate.update(self._profiles[name])
+        if cli_overrides:
+            candidate.update(cli_overrides)
+        inc = cli_include or candidate.get("include_tools")
+        exc = cli_exclude or candidate.get("exclude_tools")
+        if inc and exc:
+            raise ValueError("include_tools and exclude_tools cannot both be set")
+        self._data.clear()
+        self._data.update(candidate)
+        self._active_profile = name
 
     def __getattr__(self, key: str) -> Any:
         try:
