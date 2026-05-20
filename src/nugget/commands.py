@@ -12,28 +12,54 @@ from .session import Session
 from .tools.memory import execute as _memory_execute, get_pinned
 
 
+# (canonical_name, aliases, description)
+COMMANDS: list[tuple[str, list[str], str]] = [
+    ("/help",     ["/?"],    "show this help"),
+    ("/exit",     ["/quit"], "exit the session"),
+    ("/clear",    [],        "clear message history (keeps session file)"),
+    ("/rewind",   [],        "undo the last turn"),
+    ("/prompt",   [],        "show the current system prompt"),
+    ("/sessions", [],        "list saved sessions"),
+    ("/session",  [],        "[ID]  show current session ID, or switch to ID"),
+    ("/tools",    [],        "list active tools"),
+    ("/memory",   [],        "show pinned memories and all stored keys"),
+    ("/verbose",  [],        "toggle verbose display (thinking + tool calls/responses)"),
+    ("/thinking", [],        "toggle thinking display only"),
+    ("/profile",  [],        "[NAME]  list profiles or switch to NAME"),
+]
+
+ALL_COMMAND_NAMES: list[str] = [
+    n for name, aliases, _ in COMMANDS for n in ([name] + aliases)
+]
+COMMAND_DESCRIPTIONS: dict[str, str] = {
+    n: desc
+    for name, aliases, desc in COMMANDS
+    for n in ([name] + aliases)
+}
+
+
+def _build_help() -> str:
+    lines = []
+    for name, aliases, desc in COMMANDS:
+        all_names = "  " + "  ".join([name] + aliases)
+        lines.append(f"{all_names:<22} {desc}")
+    return "\n".join(lines)
+
+
+_HELP = _build_help()
+
+
 @dataclass
 class CommandContext:
-    session_cell: list          # [Session] — mutable; session_cell[0] is active session
+    session_cell: list              # [Session] — mutable; session_cell[0] is active session
     cfg: Config
-    active_schemas: list[dict]
+    active_schemas_cell: list       # [list[dict]] — mutable
+    backend_cell: list              # [Backend] — mutable
     get_system_prompt: Callable[[], str]
     sessions_path: Path
-
-
-_HELP = """
-  /help              show this help
-  /exit  /quit       exit the session
-  /clear             clear message history (keeps session file)
-  /rewind            undo the last turn
-  /prompt            show the current system prompt
-  /sessions          list saved sessions
-  /session [ID]      show current session ID, or switch to ID
-  /tools             list active tools
-  /memory            show pinned memories and all stored keys
-  /verbose           toggle verbose display (thinking + tool calls/responses)
-  /thinking          toggle thinking display only
-""".strip()
+    cli_overrides: dict             # overrides captured before Config() construction
+    cli_include: list | None        # from --include-tools flag
+    cli_exclude: list | None        # from --exclude-tools flag
 
 
 def dispatch(raw: str, ctx: CommandContext) -> str | None:
@@ -84,10 +110,10 @@ def dispatch(raw: str, ctx: CommandContext) -> str | None:
             display.print_session_header(ctx.session_cell[0].id)
 
     elif cmd == "/tools":
-        if not ctx.active_schemas:
+        if not ctx.active_schemas_cell[0]:
             display.print_dim("No active tools.")
         else:
-            for schema in ctx.active_schemas:
+            for schema in ctx.active_schemas_cell[0]:
                 fn = schema["function"]
                 print(f"  {display.CYAN}{fn['name']}{display.RESET}  "
                       f"{display.DIM}{fn.get('description', '')}{display.RESET}")

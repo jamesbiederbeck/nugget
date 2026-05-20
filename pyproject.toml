@@ -12,6 +12,7 @@ dependencies = [
     "requests",
     "jinja2",
     "jmespath",
+    "prompt-toolkit>=3.0",
 ]
 
 [project.optional-dependencies]

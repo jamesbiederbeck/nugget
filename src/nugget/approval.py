@@ -193,12 +193,7 @@ def check(
           f"{display.CYAN}{tool_name}{display.RESET}")
     for line in args_str.splitlines():
         print(f"  {display.DIM}{line}{display.RESET}")
-    try:
-        answer = input(f"{display.BOLD}Allow? [y/N]{display.RESET} ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        answer = ""
-
-    if answer in ("y", "yes"):
+    approved = display.ask_yes_no(f"{display.BOLD}Allow? [y/N]{display.RESET} ")
+    if approved:
         return True, None
     return False, f"tool '{tool_name}' denied by user"

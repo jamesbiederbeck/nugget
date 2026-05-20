@@ -141,6 +141,11 @@ def main() -> None:
         if val is not None:
             overrides[flag] = val
 
+    # Capture CLI flags before Config() so /profile can re-apply them
+    _cli_overrides = dict(overrides)
+    _cli_include = [t.strip() for t in args.include_tools.split(",")] if args.include_tools else None
+    _cli_exclude = [t.strip() for t in args.exclude_tools.split(",")] if args.exclude_tools else None
+
     cfg = Config(overrides, profile=args.profile)
 
     thinking_effort = resolve_thinking_effort(args, cfg)
@@ -176,6 +181,8 @@ def main() -> None:
     session_cell = [_session]
 
     backend = make_backend(cfg)
+    backend_cell = [backend]
+    active_schemas_cell = [active_schemas]
 
     if sys.stdin.isatty():
         display.print_session_header(session_cell[0].id)
@@ -223,12 +230,7 @@ def main() -> None:
         print(f"\n{display.BOLD}{display.YELLOW}[approval]{display.RESET} "
               f"{display.CYAN}{name}{display.RESET} "
               f"{display.DIM}write → {abs_path}{display.RESET}")
-        try:
-            answer = input(f"{display.BOLD}Allow? [y/N]{display.RESET} ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            answer = ""
-        return answer in ("y", "yes")
+        return display.ask_yes_no(f"{display.BOLD}Allow? [y/N]{display.RESET} ")
 
     def tool_executor(name: str, args: dict) -> object:
         approved, reason = approval_mod.check(
@@ -252,9 +254,9 @@ def main() -> None:
 
         sid_token = _subagent_session_id.set(session.id)
         try:
-            text, thinking, tool_exchanges, _ = backend.run(
+            text, thinking, tool_exchanges, _ = backend_cell[0].run(
                 messages=session.messages,
-                tool_schemas=active_schemas,
+                tool_schemas=active_schemas_cell[0],
                 tool_executor=tool_executor,
                 system_prompt=_system_prompt(),
                 thinking_effort=thinking_effort,
@@ -298,33 +300,24 @@ def main() -> None:
     if args.non_interactive and not args.message:
         parser.error("--non-interactive requires a MESSAGE argument")
 
-    # ── Readline history ─────────────────────────────────────────────────────
-    try:
-        import readline
-        import atexit
+    # ── prompt_toolkit setup ─────────────────────────────────────────────────
+    if sys.stdin.isatty():
         from pathlib import Path as _Path
-        _hist = _Path.home() / ".local" / "share" / "nugget" / "history"
-        _hist.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            lines = _hist.read_text().splitlines()
-            cleaned = [l for l in lines if l.strip() and l.strip() != "/"]
-            if len(cleaned) != len(lines):
-                _hist.write_text("\n".join(cleaned) + "\n")
-            readline.read_history_file(_hist)
-        except FileNotFoundError:
-            pass
-        readline.set_history_length(1000)
-        atexit.register(readline.write_history_file, _hist)
-    except ImportError:
-        pass
+        from .commands import COMMAND_DESCRIPTIONS
+        _pt_hist = _Path.home() / ".local" / "share" / "nugget" / "prompt_history"
+        display.setup_prompt(COMMAND_DESCRIPTIONS, _pt_hist)
 
     # ── Command context ──────────────────────────────────────────────────────
     ctx = CommandContext(
         session_cell=session_cell,
         cfg=cfg,
-        active_schemas=active_schemas,
+        active_schemas_cell=active_schemas_cell,
+        backend_cell=backend_cell,
         get_system_prompt=_system_prompt,
         sessions_path=cfg.sessions_path(),
+        cli_overrides=_cli_overrides,
+        cli_include=_cli_include,
+        cli_exclude=_cli_exclude,
     )
 
     while True:
