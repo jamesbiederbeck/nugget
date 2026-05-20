@@ -148,7 +148,16 @@ def main() -> None:
 
     cfg = Config(overrides, profile=args.profile)
 
-    thinking_effort = resolve_thinking_effort(args, cfg)
+    # If a CLI flag pins thinking effort, freeze it; otherwise read cfg dynamically
+    # so that /profile switches pick up the new profile's thinking_effort value.
+    _cli_thinking_effort = resolve_thinking_effort(args, cfg) if (
+        args.thinking_effort is not None or args.thinking is not None
+    ) else None
+
+    def get_thinking_effort() -> int:
+        if _cli_thinking_effort is not None:
+            return _cli_thinking_effort
+        return cfg.thinking_effort
 
     # ── Tool schema selection ────────────────────────────────────────────────
     if args.include_tools:
@@ -201,7 +210,7 @@ def main() -> None:
 
     if cfg.show_system_prompt:
         from .backends.textgen import build_prompt
-        preview = build_prompt([], active_schemas, _system_prompt(), thinking_effort)
+        preview = build_prompt([], active_schemas, _system_prompt(), get_thinking_effort())
         display.print_system_prompt(preview)
 
     def on_thinking(text: str) -> None:
@@ -259,7 +268,7 @@ def main() -> None:
                 tool_schemas=active_schemas_cell[0],
                 tool_executor=tool_executor,
                 system_prompt=_system_prompt(),
-                thinking_effort=thinking_effort,
+                thinking_effort=get_thinking_effort(),
                 on_thinking=on_thinking,
                 on_tool_call=on_tool_call,
                 on_tool_response=on_tool_response,
