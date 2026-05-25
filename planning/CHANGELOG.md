@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.1]
+
+### Added
+- **stdin support:** `nugget` now reads from stdin when it is not a TTY. Piped or redirected input is appended to the positional message (if any) and the process exits after the response — no `-n` needed. e.g. `gh pr diff 42 | nugget "summarize:"` or `nugget "review:" < file.txt`.
+- **Local OpenAI-compatible backends via `--api-url`:** `OpenRouterBackend` now resolves the target URL from `api_url` → `openrouter_base_url` → `https://openrouter.ai/api`. When the URL is local (`localhost` / `127.*`), the API key requirement and OpenRouter-specific headers (`HTTP-Referer`, `X-Title`) are skipped, enabling use with LM Studio, Ollama, or any local proxy.
+
+---
+
+## [0.6.0]
+
+### Added
+- **`/profile` command:** switch named config profiles at runtime without restarting. Profiles are defined under `profiles` in `config.json`; `/profile <name>` merges the profile's keys into the active config for the rest of the session.
+- **`prompt_toolkit` REPL:** interactive prompt with slash-command completion, history persistence, and a `prompt` tool for mid-conversation user input.
+- **`--api-url` flag / `NUGGET_API_URL` env var:** override the backend URL from the CLI without editing config.
+
+---
+
 ## [0.5.0]
 
 ### Added
