@@ -46,7 +46,12 @@ nugget
 nugget "what is the capital of france"
 
 # One-shot, no interactive follow-up
-nugget -n "summarize this" < file.txt
+nugget -n "what is the capital of france"
+
+# Pipe or redirect stdin — exits after response (no -n needed)
+echo "what is the capital of france" | nugget
+nugget "summarize this:" < file.txt
+cat file.txt | nugget "what are the key points?"
 
 # Resume a session by ID
 nugget --session abc12345

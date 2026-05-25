@@ -30,7 +30,7 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", "-s", metavar="ID", help="Session ID to resume or create")
     p.add_argument("--list-sessions", action="store_true", help="List saved sessions and exit")
     p.add_argument("--non-interactive", "-n", action="store_true",
-                   help="Exit after the first response (requires MESSAGE)")
+                   help="Exit after the first response (requires MESSAGE or stdin)")
 
     # Tool filtering
     tg = p.add_argument_group("tool filtering")
@@ -300,6 +300,16 @@ def main() -> None:
         session.add_assistant(text, thinking=thinking, tool_calls=tool_exchanges)
         session.save()
 
+    # ── stdin detection ──────────────────────────────────────────────────────
+    stdin_text = ""
+    if not sys.stdin.isatty():
+        stdin_text = sys.stdin.read().strip()
+
+    if stdin_text:
+        combined = f"{args.message}\n\n{stdin_text}" if args.message else stdin_text
+        run_turn(combined)
+        return
+
     # ── One-shot or interactive ──────────────────────────────────────────────
     if args.message:
         run_turn(args.message)
@@ -307,7 +317,7 @@ def main() -> None:
             return
 
     if args.non_interactive and not args.message:
-        parser.error("--non-interactive requires a MESSAGE argument")
+        parser.error("--non-interactive requires a MESSAGE argument or stdin input")
 
     # ── prompt_toolkit setup ─────────────────────────────────────────────────
     if sys.stdin.isatty():
