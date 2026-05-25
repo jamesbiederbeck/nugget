@@ -37,20 +37,27 @@ class OpenRouterBackend(Backend):
     def __init__(self, config):
         self.cfg = config
         api_key = config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY", "")
-        if not api_key:
+        raw_url = (
+            config.get("api_url")
+            or config.get("openrouter_base_url")
+            or "https://openrouter.ai/api"
+        ).rstrip("/")
+        self._url = f"{raw_url}/v1/chat/completions"
+        is_local = raw_url.startswith("http://localhost") or raw_url.startswith("http://127.")
+        if not api_key and not is_local:
             raise ValueError(
                 "OpenRouter backend requires an API key. "
                 "Set 'openrouter_api_key' in config.json or the OPENROUTER_API_KEY environment variable."
             )
         self._session = requests.Session()
-        self._session.headers.update({
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "HTTP-Referer": "https://github.com/jamesbiederbeck/nugget",
-            "X-Title": "nugget",
-        })
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        if not is_local:
+            headers["HTTP-Referer"] = "https://github.com/jamesbiederbeck/nugget"
+            headers["X-Title"] = "nugget"
+        self._session.headers.update(headers)
         self._model = config.get("openrouter_model", _DEFAULT_MODEL)
-        self._url = "https://openrouter.ai/api/v1/chat/completions"
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
