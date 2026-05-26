@@ -29,15 +29,22 @@ def setup_prompt(command_descriptions: dict[str, str], history_path) -> None:
     from pathlib import Path as _Path
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.completion import ConditionalCompleter
+    from prompt_toolkit.filters import Condition
     from .completer import SlashCommandCompleter
 
     hist = _Path(history_path)
     hist.parent.mkdir(parents=True, exist_ok=True)
 
+    _slash_completer = SlashCommandCompleter(command_descriptions)
+
     _pt_session = PromptSession(
         history=FileHistory(str(hist)),
-        completer=SlashCommandCompleter(command_descriptions),
-        complete_while_typing=False,
+        completer=ConditionalCompleter(
+            _slash_completer,
+            Condition(lambda: _pt_session.app.current_buffer.text.startswith("/")),
+        ),
+        complete_while_typing=True,
     )
 
 
