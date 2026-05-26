@@ -69,8 +69,19 @@ nugget --thinking-effort 3 "hard problem"
 # Override model (openrouter backend)
 nugget --model "anthropic/claude-3.5-sonnet"
 
+# Override backend API URL
+nugget --api-url http://localhost:8080 "hello"
+# or via environment variable
+NUGGET_API_URL=http://localhost:8080 nugget "hello"
+
+# Activate a named config profile
+nugget --profile code "explain this algorithm"
+
 # Verbose (show thinking, tool calls, system prompt)
 nugget -v "what time is it"
+
+# Show version
+nugget --version
 ```
 
 ## Tools
@@ -106,11 +117,49 @@ The `memory` tool supports a `pin` field. Pinned memories are automatically inje
 store key="my name" value="Victor" pin=true
 ```
 
+## Slash commands
+
+In the interactive REPL, type `/help` to see all commands:
+
+| Command | Description |
+|---------|-------------|
+| `/help`, `/?` | Show command list |
+| `/exit`, `/quit` | Exit the session |
+| `/clear` | Clear message history (keeps session file) |
+| `/rewind` | Undo the last turn |
+| `/session [ID]` | Show current session ID, or switch to ID |
+| `/sessions` | List saved sessions |
+| `/tools` | List active tools |
+| `/memory` | Show pinned memories and all stored keys |
+| `/profile [NAME]` | List profiles or switch to NAME |
+| `/verbose` | Toggle verbose display (thinking + tool calls/responses) |
+| `/thinking` | Toggle thinking display only |
+| `/prompt` | Show the current system prompt |
+
 ## Configuration
 
 Config lives at `~/.config/nugget/config.json`. Created automatically on first run.
 
 See [`tool_docs/CONFIG.md`](tool_docs/CONFIG.md) for annotated examples and the full key reference.
+
+## Profiles
+
+Named config overlays defined in `config.json` under `"profiles"`. Activate at launch with `--profile NAME` or switch mid-session with `/profile NAME`.
+
+```json
+{
+  "profiles": {
+    "code": { "thinking": true, "thinking_effort": 3 },
+    "fast": { "backend": "openrouter", "openrouter_model": "openai/gpt-4o-mini" }
+  }
+}
+```
+
+```bash
+nugget --profile code "refactor this function"
+# or switch at runtime
+/profile fast
+```
 
 ## Backends
 
@@ -119,11 +168,14 @@ The `backend` config key (or `--backend` flag) selects which model server to tal
 | Backend | Description |
 |---------|-------------|
 | `textgen` | text-generation-webui `/v1/completions` with Gemma 4 prompt format (default) |
-| `openrouter` | [OpenRouter](https://openrouter.ai) OpenAI-compatible API with native tool calling. Set `openrouter_api_key` in `config.json` or `OPENROUTER_API_KEY` env var. Use `openrouter_model` (or `--model`) to choose the model. |
+| `openrouter` | [OpenRouter](https://openrouter.ai) or any local OpenAI-compatible server. For OpenRouter, set `openrouter_api_key` in `config.json` or `OPENROUTER_API_KEY`. For local servers (`localhost` / `127.*`), no API key is needed — point `--api-url` at your server and OpenRouter-specific headers are skipped automatically. Use `openrouter_model` (or `--model`) to choose the model. |
 
 ```bash
 # Run server with a specific backend and model
 nugget-server --backend openrouter --model anthropic/claude-3.5-sonnet
+
+# Use a local OpenAI-compatible server (LM Studio, Ollama, etc.) — no key required
+nugget --backend openrouter --api-url http://localhost:1234 "hello"
 ```
 
 New backends live in `src/nugget/backends/`. Each one subclasses the `Backend` ABC and implements a `run()` method that takes messages, tool schemas, and a tool executor, and returns `(text, thinking, tool_exchanges, finish_reason)`.
