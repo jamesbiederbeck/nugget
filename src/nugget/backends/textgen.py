@@ -185,8 +185,6 @@ def parse_thinking(text: str) -> tuple[str | None, str]:
 
 def _render_assistant_turn(msg: dict) -> str:
     parts = []
-    if msg.get("thinking"):
-        parts.append(f"<|channel>thought\n{msg['thinking']}\n<channel|>")
     for tc in msg.get("tool_calls", []):
         parts.append(format_tool_call_token(tc["name"], tc["args"]))
         parts.append("<|tool_response>")
@@ -447,7 +445,8 @@ class TextgenBackend(Backend):
             tool_exchanges.append({"name": name, "args": args, "result": result_for_context})
 
             response_token = format_tool_response_token(name, result_for_context)
-            prompt = prompt + accumulated + "<|tool_response>" + response_token
+            _, accumulated_no_thinking = parse_thinking(accumulated)
+            prompt = prompt + accumulated_no_thinking + "<|tool_response>" + response_token
             accumulated = ""
 
         thinking_out, final_text = parse_thinking(accumulated)
