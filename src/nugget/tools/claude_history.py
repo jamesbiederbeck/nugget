@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 APPROVAL = "allow"
@@ -15,8 +16,8 @@ SCHEMA = {
             "Use search_mode 'semantic' or 'hybrid' for conceptual recall, 'lexical' "
             "or 'exact' for identifiers, filenames, and error messages. Always pass "
             "the ch_ handles emitted by search, never session UUIDs. Prefer bounded "
-            "reads over full transcripts. Scope defaults to the current workspace — "
-            "pass scope='global' to search every workspace."
+            "reads over full transcripts. Scope defaults to the nugget process's "
+            "current working directory — pass scope='global' to search every workspace."
         ),
         "parameters": {
             "type": "object",
@@ -97,7 +98,9 @@ _MODES = ("hybrid", "semantic", "lexical", "exact")
 
 def _run(cmd: list[str], timeout: int = 60) -> dict:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, cwd=os.getcwd()
+        )
     except FileNotFoundError:
         return {"error": "claude-history not found — install it first"}
     except subprocess.TimeoutExpired:
