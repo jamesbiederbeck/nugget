@@ -265,8 +265,13 @@ class TextgenBackend(Backend):
         stop: list[str],
         on_token: Callable[[str], None] | None = None,
         on_thinking: Callable[[str], None] | None = None,
+        on_thinking_end: Callable[[], None] | None = None,
     ) -> tuple[str, str]:
-        """Stream one completion turn. Fires on_token for visible text, on_thinking for thought blocks."""
+        """
+        Stream one completion turn. Fires on_token incrementally for visible
+        text, on_thinking incrementally for thought-block content as it
+        arrives, and on_thinking_end once when a thought block closes.
+        """
         url = f"{self.cfg.api_url}/v1/completions"
         payload = {
             "model": self.cfg.model,
@@ -284,9 +289,36 @@ class TextgenBackend(Backend):
         self.last_usage = None
         accumulated = ""
         finish_reason = "stop"
-        is_text_mode = False
         _LOOKAHEAD = 20
-        _SPECIAL = ("<|channel>thought", "<|tool_call>")
+        _THOUGHT_HEADER = "<|channel>thought"
+        _THOUGHT_END = "<channel|>"
+
+        # mode: 'unknown' (still classifying the start of the stream) ->
+        # 'thinking' | 'text' | 'silent' (buffered tool-call, never shown).
+        # 'post' classifies what follows a closed thought block, using the
+        # same unknown -> text|silent logic via post_mode.
+        mode = "unknown"
+        post_mode = "unknown"
+        post_buf = ""
+        hold = ""  # tail held back in 'thinking' mode in case the end marker is split across chunks
+
+        def _emit_thinking(buf: str) -> str:
+            nonlocal mode, post_buf
+            idx = buf.find(_THOUGHT_END)
+            if idx == -1:
+                keep = len(_THOUGHT_END) - 1
+                emit, remainder = buf[: len(buf) - keep], buf[len(buf) - keep :]
+                if emit and on_thinking:
+                    on_thinking(emit)
+                return remainder
+            emit = buf[:idx]
+            if emit and on_thinking:
+                on_thinking(emit)
+            if on_thinking_end:
+                on_thinking_end()
+            mode = "post"
+            post_buf = buf[idx + len(_THOUGHT_END) :]
+            return ""
 
         resp = self._session.post(url, json=payload, stream=True, timeout=120)
         resp.raise_for_status()
@@ -306,27 +338,60 @@ class TextgenBackend(Backend):
                 finish_reason = fr
             accumulated += tok
 
-            if not is_text_mode:
-                if len(accumulated) >= _LOOKAHEAD and not any(
-                    accumulated.startswith(p) for p in _SPECIAL
-                ):
-                    is_text_mode = True
+            if mode == "unknown":
+                if len(accumulated) >= _LOOKAHEAD:
+                    if accumulated.startswith(_THOUGHT_HEADER):
+                        mode = "thinking"
+                        hold = _emit_thinking(accumulated[len(_THOUGHT_HEADER) :].lstrip("\n"))
+                    elif accumulated.startswith("<|tool_call>"):
+                        mode = "silent"
+                    else:
+                        mode = "text"
+                        if on_token:
+                            on_token(accumulated)
+            elif mode == "thinking":
+                hold += tok
+                hold = _emit_thinking(hold)
+            elif mode == "text":
+                if on_token:
+                    on_token(tok)
+            elif mode == "post":
+                post_buf += tok
+                if post_mode == "unknown":
+                    if len(post_buf) >= _LOOKAHEAD:
+                        if post_buf.startswith("<|tool_call>"):
+                            post_mode = "silent"
+                        else:
+                            post_mode = "text"
+                            if on_token:
+                                on_token(post_buf)
+                elif post_mode == "text":
                     if on_token:
-                        on_token(accumulated)
-            elif on_token:
-                on_token(tok)
+                        on_token(tok)
+            # mode == "silent": nothing to do, stays buffered in `accumulated`
 
-        # Post-stream: handle thinking blocks and short responses
-        if not is_text_mode:
+        # Post-stream: flush anything left unresolved — short responses that
+        # never crossed a classification threshold, or a thought block that
+        # never reached its closing marker before the stream ended.
+        if mode == "unknown":
             if "<|channel>thought" in accumulated:
                 thinking_text, response_text = parse_thinking(accumulated)
                 if thinking_text and on_thinking:
                     on_thinking(thinking_text)
+                    if on_thinking_end:
+                        on_thinking_end()
                 if response_text and "<|tool_call>" not in accumulated and on_token:
                     on_token(response_text)
             elif accumulated and "<|tool_call>" not in accumulated and on_token:
-                # Short response that never reached the lookahead threshold
                 on_token(accumulated)
+        elif mode == "thinking":
+            if hold and on_thinking:
+                on_thinking(hold)
+            if on_thinking_end:
+                on_thinking_end()
+        elif mode == "post" and post_mode == "unknown":
+            if post_buf and "<|tool_call>" not in post_buf and on_token:
+                on_token(post_buf)
 
         return accumulated, finish_reason
 
@@ -338,6 +403,7 @@ class TextgenBackend(Backend):
         system_prompt: str,
         thinking_effort: int = 0,
         on_thinking: Callable[[str], None] | None = None,
+        on_thinking_end: Callable[[], None] | None = None,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_response: Callable[[str, object], None] | None = None,
         on_tool_denied: Callable[[str, str], None] | None = None,
@@ -362,7 +428,8 @@ class TextgenBackend(Backend):
             try:
                 if on_token is not None:
                     text, finish_reason = self._complete_streaming(
-                        prompt, stop, on_token=on_token, on_thinking=on_thinking
+                        prompt, stop, on_token=on_token, on_thinking=on_thinking,
+                        on_thinking_end=on_thinking_end,
                     )
                 else:
                     text, finish_reason = self._complete(prompt, stop)
@@ -453,5 +520,7 @@ class TextgenBackend(Backend):
         if thinking_out and on_thinking and on_token is None:
             # In streaming mode _complete_streaming already fired on_thinking
             on_thinking(thinking_out)
+            if on_thinking_end:
+                on_thinking_end()
 
         return final_text, thinking_out, tool_exchanges, finish_reason

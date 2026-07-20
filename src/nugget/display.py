@@ -55,6 +55,22 @@ def print_thinking(text: str) -> None:
     print(f"{DIM}{MAGENTA}[/thinking]{RESET}\n")
 
 
+def print_thinking_begin() -> None:
+    print(f"\n{DIM}{MAGENTA}[thinking]{RESET}")
+
+
+def print_thinking_token(text: str) -> None:
+    print(f"{DIM}{text}{RESET}", end="", flush=True)
+
+
+def print_thinking_end() -> None:
+    print(f"\n{DIM}{MAGENTA}[/thinking]{RESET}\n")
+
+
+def print_shell_command(cmd: str) -> None:
+    print(f"{DIM}! {cmd}{RESET}")
+
+
 def print_tool_call(name: str, args: dict) -> None:
     import json
     args_str = json.dumps(args, indent=2)

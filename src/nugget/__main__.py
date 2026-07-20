@@ -5,6 +5,7 @@ Interactive or one-shot chat via a configurable local model backend.
 """
 
 import argparse
+import subprocess
 import sys
 from importlib.metadata import version as _pkg_version, PackageNotFoundError as _PNF
 
@@ -214,9 +215,20 @@ def main() -> None:
         preview = build_prompt([], active_schemas, _system_prompt(), get_thinking_effort())
         display.print_system_prompt(preview)
 
+    thinking_open = [False]
+
     def on_thinking(text: str) -> None:
-        if cfg.show_thinking:
-            display.print_thinking(text)
+        if not cfg.show_thinking:
+            return
+        if not thinking_open[0]:
+            display.print_thinking_begin()
+            thinking_open[0] = True
+        display.print_thinking_token(text)
+
+    def on_thinking_end() -> None:
+        if cfg.show_thinking and thinking_open[0]:
+            display.print_thinking_end()
+        thinking_open[0] = False
 
     def on_tool_call(name: str, args: dict) -> None:
         if cfg.show_tool_calls:
@@ -271,6 +283,7 @@ def main() -> None:
                 system_prompt=_system_prompt(),
                 thinking_effort=get_thinking_effort(),
                 on_thinking=on_thinking,
+                on_thinking_end=on_thinking_end,
                 on_tool_call=on_tool_call,
                 on_tool_response=on_tool_response,
                 on_tool_denied=on_tool_denied,
@@ -347,6 +360,15 @@ def main() -> None:
         if user_input.startswith("/"):
             if commands_mod.dispatch(user_input, ctx) == "exit":
                 break
+            continue
+        if user_input.startswith("!"):
+            shell_cmd = user_input[1:].strip()
+            if shell_cmd:
+                display.print_shell_command(shell_cmd)
+                try:
+                    subprocess.run(shell_cmd, shell=True)
+                except OSError as e:
+                    display.print_error(str(e))
             continue
         run_turn(user_input)
 

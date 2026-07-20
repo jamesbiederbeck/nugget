@@ -43,6 +43,7 @@ def _build_help() -> str:
     for name, aliases, desc in COMMANDS:
         all_names = "  " + "  ".join([name] + aliases)
         lines.append(f"{all_names:<22} {desc}")
+    lines.append(f"{'  !<command>':<22} run a shell command directly")
     return "\n".join(lines)
 
 

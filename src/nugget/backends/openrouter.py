@@ -140,11 +140,14 @@ class OpenRouterBackend(Backend):
         tool_schemas: list[dict],
         on_token: Callable[[str], None] | None,
         on_thinking: Callable[[str], None] | None,
+        on_thinking_end: Callable[[], None] | None = None,
     ) -> tuple[str, str | None, list[dict]]:
         """
-        Streaming completion. Fires on_token for visible text, on_thinking for
-        reasoning content. Assembles partial tool-call-argument deltas across
-        chunks. Returns (text, thinking, tool_calls_raw).
+        Streaming completion. Fires on_token incrementally for visible text,
+        on_thinking incrementally for reasoning content as it arrives, and
+        on_thinking_end once reasoning gives way to visible content. Assembles
+        partial tool-call-argument deltas across chunks. Returns
+        (text, thinking, tool_calls_raw).
         """
         self.last_usage = None
         payload: dict = {
@@ -191,10 +194,14 @@ class OpenRouterBackend(Backend):
             reasoning_delta = delta.get("reasoning_content") or ""
             if reasoning_delta:
                 thinking_parts.append(reasoning_delta)
+                if on_thinking:
+                    on_thinking(reasoning_delta)
 
             # Visible text
             content_delta = delta.get("content") or ""
             if content_delta:
+                if thinking_parts and not text_parts and on_thinking_end:
+                    on_thinking_end()
                 text_parts.append(content_delta)
                 if on_token:
                     on_token(content_delta)
@@ -216,8 +223,10 @@ class OpenRouterBackend(Backend):
         full_text = "".join(text_parts)
         full_thinking = "".join(thinking_parts) or None
 
-        if full_thinking and on_thinking:
-            on_thinking(full_thinking)
+        # If reasoning never gave way to visible content (e.g. straight into
+        # a tool call), close the block here instead of leaving it dangling.
+        if full_thinking and not text_parts and on_thinking_end:
+            on_thinking_end()
 
         # Convert buf → OpenAI tool_calls format, preserving stream order via index
         tool_calls_raw = [
@@ -239,6 +248,7 @@ class OpenRouterBackend(Backend):
         tool_executor: Callable[[str, dict], object],
         system_prompt: str,
         on_thinking: Callable[[str], None] | None = None,
+        on_thinking_end: Callable[[], None] | None = None,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_response: Callable[[str, object], None] | None = None,
         on_tool_denied: Callable[[str, str], None] | None = None,
@@ -262,7 +272,8 @@ class OpenRouterBackend(Backend):
             try:
                 if on_token is not None:
                     text, thinking, raw_tcs = self._complete_streaming(
-                        oai_messages, tool_schemas, on_token=on_token, on_thinking=on_thinking
+                        oai_messages, tool_schemas, on_token=on_token, on_thinking=on_thinking,
+                        on_thinking_end=on_thinking_end,
                     )
                 else:
                     text, thinking, raw_tcs = self._complete(oai_messages, tool_schemas)
