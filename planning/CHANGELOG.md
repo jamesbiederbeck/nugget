@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.0]
+
+### Added
+- **MCP client (roadmap #6):** `mcp_servers` config key loads tools from external MCP servers (stdio or Streamable HTTP) into nugget's own tool-calling loop, namespaced `mcp__<server>__<tool>`. Rides the existing approval pipeline (`"ask"` by default for unvetted external tools). Never re-exposed through nugget's own MCP server.
+- **MCP server (roadmap #6):** `nugget-server` can expose the active profile's native tools to external MCP clients (Claude Code, Claude Desktop, etc.) over Streamable HTTP when `mcp_server.enabled` is set, mounted at `mcp_server.path` (default `/mcp`). Only tools whose approval statically resolves to `"allow"` are listed or callable — no interactive approval-prompt channel for MCP calls yet (tracked as `NUG-023`).
+
 ## [0.6.1]
 
 ### Added
