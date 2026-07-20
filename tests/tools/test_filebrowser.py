@@ -1,5 +1,13 @@
 import pytest
+from nugget.tools import filebrowser
 from nugget.tools.filebrowser import execute, APPROVAL
+
+
+@pytest.fixture(autouse=True)
+def _clear_read_cache():
+    filebrowser._read_cache.clear()
+    yield
+    filebrowser._read_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +224,7 @@ def test_write_creates_new_file(tmp_path):
 def test_write_overwrites_existing(tmp_path):
     f = tmp_path / "existing.txt"
     f.write_text("old")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "write", "path": str(f), "content": "new"})
     assert result["created"] is False
     assert f.read_text() == "new"
@@ -240,6 +249,7 @@ def test_write_missing_parent(tmp_path):
 def test_append_to_existing(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("hello")
+    execute({"operation": "cat", "path": str(f)})
     execute({"operation": "append", "path": str(f), "content": " world"})
     assert f.read_text() == "hello world"
 
@@ -254,6 +264,7 @@ def test_append_creates_file(tmp_path):
 def test_append_returns_size(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("ab")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "append", "path": str(f), "content": "cd"})
     assert result["size"] == 4
 
@@ -265,6 +276,7 @@ def test_append_returns_size(tmp_path):
 def test_replace_basic(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("hello world")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "replace", "path": str(f), "old": "hello", "new": "goodbye"})
     assert result["replacements"] == 1
     assert f.read_text() == "goodbye world"
@@ -273,6 +285,7 @@ def test_replace_basic(tmp_path):
 def test_replace_count_limits(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("aaa")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "replace", "path": str(f), "old": "a", "new": "b", "count": 2})
     assert result["replacements"] == 2
     assert f.read_text() == "bba"
@@ -281,6 +294,7 @@ def test_replace_count_limits(tmp_path):
 def test_replace_all_with_minus_one(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("aaa")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "replace", "path": str(f), "old": "a", "new": "b", "count": -1})
     assert result["replacements"] == 3
     assert f.read_text() == "bbb"
@@ -289,6 +303,7 @@ def test_replace_all_with_minus_one(tmp_path):
 def test_replace_not_found(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("hello")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "replace", "path": str(f), "old": "xyz", "new": "abc"})
     assert "error" in result
     assert f.read_text() == "hello"  # file unchanged
@@ -297,6 +312,7 @@ def test_replace_not_found(tmp_path):
 def test_replace_empty_old_rejected(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("hello")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "replace", "path": str(f), "old": "", "new": "x"})
     assert "error" in result
 
@@ -309,6 +325,7 @@ def test_replace_missing_file():
 def test_replace_delete_via_empty_new(tmp_path):
     f = tmp_path / "f.txt"
     f.write_text("remove this here")
+    execute({"operation": "cat", "path": str(f)})
     result = execute({"operation": "replace", "path": str(f), "old": "remove this ", "new": ""})
     assert result["replacements"] == 1
     assert f.read_text() == "here"
@@ -432,3 +449,87 @@ def test_restore_backup_missing_backup(tmp_path):
     f.write_text("x")
     result = execute({"operation": "restore_backup", "path": str(f), "backup_path": str(tmp_path / "no.bak")})
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# read-before-write guard
+# ---------------------------------------------------------------------------
+
+def test_write_blind_rejected(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("old")
+    result = execute({"operation": "write", "path": str(f), "content": "new"})
+    assert "error" in result
+    assert f.read_text() == "old"  # unchanged
+
+
+def test_append_blind_rejected(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("hello")
+    result = execute({"operation": "append", "path": str(f), "content": " world"})
+    assert "error" in result
+    assert f.read_text() == "hello"  # unchanged
+
+
+def test_replace_blind_rejected(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("hello world")
+    result = execute({"operation": "replace", "path": str(f), "old": "hello", "new": "goodbye"})
+    assert "error" in result
+    assert f.read_text() == "hello world"  # unchanged
+
+
+def test_write_new_file_needs_no_read(tmp_path):
+    f = tmp_path / "brand_new.txt"
+    result = execute({"operation": "write", "path": str(f), "content": "hi"})
+    assert "error" not in result
+    assert f.read_text() == "hi"
+
+
+def test_append_new_file_needs_no_read(tmp_path):
+    f = tmp_path / "brand_new.txt"
+    result = execute({"operation": "append", "path": str(f), "content": "hi"})
+    assert "error" not in result
+    assert f.read_text() == "hi"
+
+
+def test_read_lines_satisfies_guard(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("a\nb\nc\n")
+    execute({"operation": "read_lines", "path": str(f), "start": 1, "end": 1})
+    result = execute({"operation": "write", "path": str(f), "content": "new"})
+    assert "error" not in result
+
+
+def test_write_then_write_again_needs_no_extra_read(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("old")
+    execute({"operation": "cat", "path": str(f)})
+    execute({"operation": "write", "path": str(f), "content": "v2"})
+    result = execute({"operation": "write", "path": str(f), "content": "v3"})
+    assert "error" not in result
+    assert f.read_text() == "v3"
+
+
+def test_write_after_stale_external_modification_rejected(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("original")
+    execute({"operation": "cat", "path": str(f)})
+    # File changes on disk after our read, with a distinct mtime.
+    import os
+    os.utime(f, (0, 1000))
+    result = execute({"operation": "write", "path": str(f), "content": "new"})
+    assert "error" in result
+    assert f.read_text() == "original"  # unchanged
+
+
+def test_replace_after_fresh_read_of_stale_file_succeeds(tmp_path):
+    f = tmp_path / "f.txt"
+    f.write_text("original")
+    execute({"operation": "cat", "path": str(f)})
+    import os
+    os.utime(f, (0, 1000))
+    execute({"operation": "cat", "path": str(f)})  # re-read
+    result = execute({"operation": "replace", "path": str(f), "old": "original", "new": "new"})
+    assert "error" not in result
+    assert f.read_text() == "new"

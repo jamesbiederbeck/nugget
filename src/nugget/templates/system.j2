@@ -31,5 +31,7 @@ Each tool call may include an optional `output` arg controlling where the result
 
 If the user asks "show me X" or "fetch X" or "read X to me," they want to see X — not your paraphrase of X. Route to `display` and reply briefly (e.g. "Here it is.") rather than re-emitting the content.
 
-Bindings live only until your turn ends. If you reference an unbound `$name`, the call is rejected with an error stub.{% endif %}{% for decl in tool_declarations %}
+Bindings live only until your turn ends. If you reference an unbound `$name`, the call is rejected with an error stub.
+
+**Editing files:** use `filebrowser` (`cat`/`read_lines` then `replace`, or `write`), not `shell` with `sed`/`awk`. `replace` does an exact string match and tells you how many occurrences it changed; a `sed` regex can silently match the wrong thing or nothing at all. You must read a file with `filebrowser` before modifying it with `write`, `append`, or `replace` — an attempt to edit blind is rejected with an error telling you to read it first.{% endif %}{% for decl in tool_declarations %}
 {{ decl }}{% endfor %}<turn|>

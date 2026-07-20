@@ -113,6 +113,73 @@ def test_list_shows_pin_status(tmp_memory_db):
     assert by_key["u"]["pinned"] is False
 
 
+# ── pin / unpin operations ──────────────────────────────────────────────────────
+
+def test_pin_operation(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "v"})
+    result = execute({"operation": "pin", "key": "k"})
+    assert result == {"key": "k", "pinned": True}
+    assert execute({"operation": "recall", "key": "k"})["pinned"] is True
+
+
+def test_unpin_operation(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "v", "pin": True})
+    result = execute({"operation": "unpin", "key": "k"})
+    assert result == {"key": "k", "pinned": False}
+    assert execute({"operation": "recall", "key": "k"})["pinned"] is False
+
+
+def test_pin_preserves_value(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "original"})
+    execute({"operation": "pin", "key": "k"})
+    assert execute({"operation": "recall", "key": "k"})["value"] == "original"
+
+
+def test_pin_missing_key(tmp_memory_db):
+    result = execute({"operation": "pin", "key": "no_such_key"})
+    assert "error" in result
+
+
+def test_unpin_missing_key(tmp_memory_db):
+    result = execute({"operation": "unpin", "key": "no_such_key"})
+    assert "error" in result
+
+
+def test_pin_requires_key(tmp_memory_db):
+    result = execute({"operation": "pin"})
+    assert "error" in result
+
+
+def test_pin_rejects_value_arg(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "original"})
+    result = execute({"operation": "pin", "key": "k", "value": "oops"})
+    assert "error" in result
+    assert execute({"operation": "recall", "key": "k"})["value"] == "original"
+    assert execute({"operation": "recall", "key": "k"})["pinned"] is False
+
+
+def test_unpin_rejects_value_arg(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "original", "pin": True})
+    result = execute({"operation": "unpin", "key": "k", "value": "oops"})
+    assert "error" in result
+    assert execute({"operation": "recall", "key": "k"})["value"] == "original"
+    assert execute({"operation": "recall", "key": "k"})["pinned"] is True
+
+
+def test_pin_appears_in_get_pinned(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "v"})
+    execute({"operation": "pin", "key": "k"})
+    pinned = get_pinned()
+    assert len(pinned) == 1
+    assert pinned[0]["key"] == "k"
+
+
+def test_unpin_removed_from_get_pinned(tmp_memory_db):
+    execute({"operation": "store", "key": "k", "value": "v", "pin": True})
+    execute({"operation": "unpin", "key": "k"})
+    assert get_pinned() == []
+
+
 # ── Cross-linking ─────────────────────────────────────────────────────────────
 
 def test_recall_resolves_link(tmp_memory_db):

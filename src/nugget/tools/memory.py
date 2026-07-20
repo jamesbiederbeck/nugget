@@ -27,7 +27,10 @@ SCHEMA = {
             "'recall' retrieves a value by exact key; "
             "'search' finds memories whose key or value contains a substring; "
             "'list' returns all stored keys; "
-            "'delete' removes a key. "
+            "'delete' removes a key; "
+            "'pin' and 'unpin' flip the pinned flag on an existing key without "
+            "touching its value (prefer these over re-sending 'store' with a "
+            "'pin' arg, which requires repeating the value and risks overwriting it). "
             "Link related memories using memory:// URIs in stored values "
             "(e.g., 'see memory://user-name'). Links are auto-resolved when recalling."
         ),
@@ -36,11 +39,11 @@ SCHEMA = {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "description": "One of: 'store', 'recall', 'search', 'list', 'delete'",
+                    "description": "One of: 'store', 'recall', 'search', 'list', 'delete', 'pin', 'unpin'",
                 },
                 "key": {
                     "type": "string",
-                    "description": "Memory key (required for store, recall, delete)",
+                    "description": "Memory key (required for store, recall, delete, pin, unpin)",
                 },
                 "value": {
                     "type": "string",
@@ -231,4 +234,21 @@ def execute(args: dict) -> dict:
             return {"error": f"no memory found for key: {key!r}"}
         return {"deleted": key}
 
-    return {"error": f"unknown operation: {op!r}. Use store, recall, search, list, or delete"}
+    if op in ("pin", "unpin"):
+        key = args.get("key", "").strip()
+        if not key:
+            return {"error": f"{op} requires a key"}
+        if args.get("value") is not None:
+            return {"error": f"{op} does not take a value; it only changes the pinned flag. Use store to change the value."}
+        pin_val = 1 if op == "pin" else 0
+        now = datetime.now(timezone.utc).isoformat()
+        with _connect() as conn:
+            cur = conn.execute(
+                "UPDATE memory SET pinned=?, updated_at=? WHERE key=?",
+                (pin_val, now, key),
+            )
+        if cur.rowcount == 0:
+            return {"error": f"no memory found for key: {key!r}"}
+        return {"key": key, "pinned": bool(pin_val)}
+
+    return {"error": f"unknown operation: {op!r}. Use store, recall, search, list, delete, pin, or unpin"}

@@ -8,9 +8,16 @@ SCHEMA = {
     "function": {
         "name": "filebrowser",
         "description": (
-            "Browse and edit the local filesystem. "
+            "Browse and edit the local filesystem. Prefer this over `shell` "
+            "(e.g. sed/awk one-liners) for editing files: 'replace' does an exact, "
+            "unambiguous string substitution and reports how many occurrences it "
+            "changed, instead of a regex that may silently match too much, too "
+            "little, or nothing. "
             "Operations: 'cwd', 'ls', 'cat', 'read_lines', 'stat', 'glob', "
-            "'write', 'append', 'replace', 'mkdir', 'move', 'backup', 'restore_backup'."
+            "'write', 'append', 'replace', 'mkdir', 'move', 'backup', 'restore_backup'. "
+            "An existing file must be read with 'cat' or 'read_lines' before it can be "
+            "modified with 'write', 'append', or 'replace' — this catches edits made "
+            "blind, without having seen the current content."
         ),
         "parameters": {
             "type": "object",
@@ -74,9 +81,29 @@ SCHEMA = {
 
 _READ_OPS = {"cwd", "ls", "cat", "read_lines", "stat", "glob"}
 
+# path -> mtime observed the last time it was read via 'cat' or 'read_lines'.
+# Used to require a fresh read before 'write'/'append'/'replace' touch an
+# existing file, and to catch edits based on stale content.
+_read_cache: dict[str, float] = {}
+
 
 def APPROVAL(args: dict) -> str:
     return "allow" if args.get("operation", "") in _READ_OPS else "ask"
+
+
+def _mark_read(target: Path) -> None:
+    _read_cache[str(target)] = target.stat().st_mtime
+
+
+def _check_read_guard(target: Path) -> dict | None:
+    if not target.exists():
+        return None
+    recorded = _read_cache.get(str(target))
+    if recorded is None:
+        return {"error": f"must read {target} ('cat' or 'read_lines') before modifying it"}
+    if target.stat().st_mtime != recorded:
+        return {"error": f"{target} changed on disk since it was last read; re-read before modifying"}
+    return None
 
 
 def execute(args: dict) -> dict:
@@ -116,6 +143,7 @@ def execute(args: dict) -> dict:
             if target.is_dir():
                 return {"error": f"is a directory: {target}"}
             content = target.read_text(errors="replace")
+            _mark_read(target)
             return {"path": str(target), "content": content, "size": target.stat().st_size}
         except PermissionError:
             return {"error": f"permission denied: {target}"}
@@ -143,6 +171,7 @@ def execute(args: dict) -> dict:
             return {"path": str(target), "lines": [], "start": start, "end": start, "total_lines": total}
         if end < start:
             return {"error": f"'end' ({end}) is less than 'start' ({start})"}
+        _mark_read(target)
         return {
             "path": str(target),
             "lines": all_lines[start - 1:end],
@@ -194,8 +223,12 @@ def execute(args: dict) -> dict:
         target = Path(path_arg).expanduser().resolve()
         if not target.parent.exists():
             return {"error": f"parent directory does not exist: {target.parent}"}
+        guard_error = _check_read_guard(target)
+        if guard_error:
+            return guard_error
         created = not target.exists()
         target.write_text(args["content"])
+        _mark_read(target)
         return {"path": str(target), "size": target.stat().st_size, "created": created}
 
     if op == "append":
@@ -206,8 +239,12 @@ def execute(args: dict) -> dict:
         target = Path(path_arg).expanduser().resolve()
         if not target.parent.exists():
             return {"error": f"parent directory does not exist: {target.parent}"}
+        guard_error = _check_read_guard(target)
+        if guard_error:
+            return guard_error
         with target.open("a") as f:
             f.write(args["content"])
+        _mark_read(target)
         return {"path": str(target), "size": target.stat().st_size}
 
     if op == "replace":
@@ -229,6 +266,9 @@ def execute(args: dict) -> dict:
             return {"error": f"file not found: {target}"}
         if target.is_dir():
             return {"error": f"is a directory: {target}"}
+        guard_error = _check_read_guard(target)
+        if guard_error:
+            return guard_error
         content = target.read_text(errors="replace")
         n_found = content.count(old)
         if n_found == 0:
@@ -240,6 +280,7 @@ def execute(args: dict) -> dict:
             new_content = content.replace(old, new, count)
             n_replaced = min(n_found, count)
         target.write_text(new_content, errors="replace")
+        _mark_read(target)
         return {"path": str(target), "replacements": n_replaced}
 
     if op == "mkdir":
