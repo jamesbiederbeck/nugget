@@ -62,6 +62,18 @@ Created automatically on first run with defaults.
         },
         "sink_conflict": { "type": "string", "enum": ["strictest", "first"], "default": "strictest" }
       }
+    },
+    "mcp_servers": {
+      "type": "object",
+      "description": "server-name -> {transport, command/args/env (stdio) or url (http), include_tools, exclude_tools, approval_default}",
+      "default": {}
+    },
+    "mcp_server": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "path":    { "type": "string",  "default": "/mcp" }
+      }
     }
   }
 }
@@ -92,6 +104,8 @@ Created automatically on first run with defaults.
 | `openrouter_api_key` | `""` | OpenRouter API key (or set `OPENROUTER_API_KEY` env var) |
 | `openrouter_model` | `"openai/gpt-4o-mini"` | Default model for the openrouter backend |
 | `approval` | *(see below)* | Tool-call approval policy |
+| `mcp_servers` | `{}` | External MCP servers whose tools nugget's own tool loop can call (see below) |
+| `mcp_server` | `{"enabled": false, "path": "/mcp"}` | `nugget-server`'s own MCP-server exposure (see below) |
 
 ---
 
@@ -200,6 +214,72 @@ Rules are evaluated in order; first match wins. Then the tool's built-in `APPROV
   }
 }
 ```
+
+---
+
+## MCP
+
+Requires the `mcp` extra: `uv pip install -e ".[mcp]"` (or `uv tool install ".[mcp]" --force`).
+
+### MCP client — consuming external servers
+
+`mcp_servers` lists external MCP servers whose tools are dynamically loaded
+into nugget's own tool-calling loop (CLI and `nugget-server` chat), namespaced
+`mcp__<server>__<tool>` to avoid collisions:
+
+```json
+{
+  "mcp_servers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/docs"],
+      "approval_default": "ask"
+    },
+    "internal-api": {
+      "transport": "http",
+      "url": "http://localhost:9000/mcp",
+      "include_tools": ["search", "lookup"]
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `transport` | `"stdio"` or `"http"` |
+| `command` / `args` / `env` | stdio only — subprocess to launch |
+| `url` | http only — the server's MCP endpoint |
+| `include_tools` / `exclude_tools` | Filter which of the server's tools to load (mirrors the top-level keys) |
+| `approval_default` | Default approval gate for this server's tools. Default `"ask"` — external tools are unvetted. |
+
+Approval for MCP-client tools goes through the normal `approval` pipeline
+(config rules first, then this gate, then the config default) — same CLI
+prompt / web "ask" flow as any other tool.
+
+Tools loaded this way are **never** re-exposed through nugget's own MCP
+server (below) — the two are structurally separate.
+
+### MCP server — exposing nugget's tools
+
+```json
+{
+  "mcp_server": { "enabled": true, "path": "/mcp" }
+}
+```
+
+When `enabled`, `nugget-server` mounts an MCP endpoint at `path` exposing the
+active profile's *native* tools (respecting `include_tools`/`exclude_tools`)
+to external MCP clients (Claude Code, Claude Desktop, etc.) over Streamable
+HTTP.
+
+Only tools whose approval statically resolves to a plain `"allow"` are ever
+listed or callable: tools with a dynamic (callable) `APPROVAL` gate
+(`filebrowser`, `http_fetch`, `memory`, `tasks`) and tools gated `"ask"`
+(`shell`, `spawn_agent`) are excluded outright. There is currently no
+interactive approval-prompt channel for MCP calls — see `NUG-023` in
+`planning/backlog.md` for the deferred design. Approval is re-checked
+(never prompted) against the real call args as a backstop.
 
 ---
 

@@ -24,6 +24,7 @@ from .config import Config
 from .session import Session
 from .backends import make_backend, BackendError
 from . import tools as tool_registry
+from . import mcp_client
 from . import approval as approval_mod
 from .tools.memory import get_pinned as _get_pinned
 from .subagent import _session_id as _subagent_session_id, _event_callbacks as _subagent_event_callbacks
@@ -102,16 +103,16 @@ def _make_web_tool_executor(emit):
 
     def executor(name: str, args: dict) -> object:
         cfg = _get_cfg()
-        action = approval_mod._resolve_action(
-            name, args, tool_registry.gate(name), cfg.approval_config()
-        )
+        is_mcp = mcp_client.owns(name)
+        gate = mcp_client.gate(name) if is_mcp else tool_registry.gate(name)
+        action = approval_mod._resolve_action(name, args, gate, cfg.approval_config())
         if action == "deny":
             return {"_denied": True, "reason": f"tool '{name}' blocked by approval policy"}
         if action == "ask":
             approved, reason = web_ask(name, args)
             if not approved:
                 return {"_denied": True, "reason": reason}
-        return tool_registry.execute(name, args)
+        return mcp_client.execute(name, args) if is_mcp else tool_registry.execute(name, args)
     return executor
 
 
@@ -164,7 +165,7 @@ async def chat(session_id: str, req: ChatRequest):
     cfg = _get_cfg()
     session = Session.load(session_id, cfg.sessions_path())
     session.add_user(req.message)
-    active_schemas = tool_registry.schemas()
+    active_schemas = tool_registry.schemas() + mcp_client.schemas(cfg)
 
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
@@ -342,6 +343,28 @@ def main() -> None:
         if args.model:
             overrides["openrouter_model"] = args.model
         _cfg = _Config(overrides or None, profile=args.profile)
+
+    cfg = _get_cfg()
+    mcp_cfg = cfg.get("mcp_server", {})
+    if mcp_cfg.get("enabled"):
+        from starlette.routing import Route
+        from . import mcp_server as mcp_server_mod
+
+        mcp_path = mcp_cfg.get("path", "/mcp")
+        asgi_endpoint, mcp_lifespan = mcp_server_mod.build_asgi_app(cfg)
+        app.router.lifespan_context = mcp_lifespan
+        # Insert before the "/" static-files mount (if present) — Starlette
+        # matches routes in registration order and a "/" mount is a
+        # catch-all that would otherwise shadow a later-appended route.
+        static_idx = next(
+            (i for i, r in enumerate(app.router.routes) if getattr(r, "name", None) == "static"),
+            len(app.router.routes),
+        )
+        app.router.routes.insert(
+            static_idx,
+            Route(mcp_path, asgi_endpoint, methods=["GET", "POST", "DELETE"], name="mcp"),
+        )
+        print(f"nugget MCP server → http://{args.host}:{args.port}{mcp_path}")
 
     print(f"nugget server → http://{args.host}:{args.port}")
     uvicorn.run("nugget.server:app", host=args.host, port=args.port, reload=False)

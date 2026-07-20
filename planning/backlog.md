@@ -626,6 +626,54 @@ Vector index over `memory.db` rows and session message bodies. Surfaced as a new
 
 ---
 
+## MCP integration
+
+MCP client (`src/nugget/mcp_client.py`) and server (`src/nugget/mcp_server.py`)
+support landed on `feat/mcp-integration` (roadmap #6). Scoped down at
+implementation time to skip building an interactive approval channel —
+see NUG-023 below for the deferred piece.
+
+### NUG-023 · MCP server: interactive approval channel for ask/dynamically-gated tools · P2 · M · feature
+**Roadmap #:** 6
+
+`src/nugget/mcp_server.py` only lists/serves native tools whose approval
+statically resolves to `"allow"` for empty args. Tools with a dynamic
+(callable) `APPROVAL` gate (`filebrowser`, `http_fetch`, `memory`, `tasks`)
+and tools gated `"ask"` (`shell`, `spawn_agent`) are excluded from the MCP
+tool list entirely — there is currently no channel for an MCP client's tool
+call to trigger a human approval prompt, so those tools are simply
+unreachable via MCP rather than silently downgraded to `"allow"` or left to
+hang.
+
+**Acceptance criteria:**
+- An MCP `call_tool` that resolves to `"ask"` creates a pending-approval
+  entry and blocks (bounded timeout, e.g. 300s) until resolved — reusing
+  `server.py`'s existing `_pending_approvals` dict + `_make_web_ask` /
+  `GET /api/approvals/pending` / `POST /api/approvals/{call_id}/respond`
+  machinery already built for the web chat UI's "ask" flow, rather than a
+  parallel mechanism.
+- Tools with a dynamic `APPROVAL` gate become listable — the list-time
+  filter in `mcp_server.exposable_schemas()` currently excludes them
+  wholesale because "allow" can't be proven without real args; decide
+  whether to list them anyway (relying on the call-time re-resolve +
+  approval channel) or keep excluding from discovery while still allowing
+  direct calls once a client already knows the tool name.
+- Open question to resolve as part of the design: how an operator is
+  notified of a pending MCP approval without an open chat SSE stream — a
+  standing `/api/events` broadcast all web UI tabs subscribe to is one
+  option; a desktop/CLI notification hook is another.
+- Timeout behavior (deny vs. keep-pending) and concurrent-approval UX
+  (multiple MCP clients queuing approvals against one operator) need
+  explicit test coverage.
+
+**Files likely touched:** `src/nugget/mcp_server.py`, `src/nugget/server.py`
+(extend `_pending_approvals` handling to cover non-chat-originated calls),
+possibly web frontend for a standing approvals view.
+
+**Depends on:** the MCP integration landing first (this branch).
+
+---
+
 ## Bench enhancements (parallel track)
 
 ### NUG-012 · Bench: prompt-variant sweeping · P3 · M · feature

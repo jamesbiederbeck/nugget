@@ -165,10 +165,13 @@ def dispatch(raw: str, ctx: CommandContext) -> str | None:
                 display.print_error(str(e))
                 return None
             from . import tools as tool_registry
+            from . import mcp_client
             from .backends import make_backend
             inc = ctx.cli_include or ctx.cfg.get("include_tools")
             exc = ctx.cli_exclude or ctx.cfg.get("exclude_tools")
-            ctx.active_schemas_cell[0] = tool_registry.schemas(include=inc, exclude=exc)
+            ctx.active_schemas_cell[0] = (
+                tool_registry.schemas(include=inc, exclude=exc) + mcp_client.schemas(ctx.cfg)
+            )
             ctx.backend_cell[0] = make_backend(ctx.cfg)
             display.print_dim(f"Switched to profile: {arg}")
 
