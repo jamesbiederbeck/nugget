@@ -28,6 +28,7 @@ Created automatically on first run with defaults.
     "append_datetime":     { "type": "boolean", "default": true },
     "sessions_dir":        { "type": "string",  "default": "~/.local/share/nugget/sessions" },
     "debug":               { "type": "boolean", "default": false },
+    "shell_output_max_chars": { "type": "integer", "minimum": 0, "default": 1000 },
     "openrouter_api_key":  { "type": "string",  "default": "" },
     "openrouter_model":    { "type": "string",  "default": "openai/gpt-4o-mini" },
     "approval": {
@@ -101,6 +102,7 @@ Created automatically on first run with defaults.
 | `append_datetime` | `true` | Append current date/time to the system prompt |
 | `sessions_dir` | `~/.local/share/nugget/sessions` | Where session JSON files are saved |
 | `debug` | `false` | Enable debug logging |
+| `shell_output_max_chars` | `1000` | Max chars of `!<command>` output added to conversation context (terminal always shows the full output) |
 | `openrouter_api_key` | `""` | OpenRouter API key (or set `OPENROUTER_API_KEY` env var) |
 | `openrouter_model` | `"openai/gpt-4o-mini"` | Default model for the openrouter backend |
 | `approval` | *(see below)* | Tool-call approval policy |

@@ -23,6 +23,11 @@ DEFAULTS: dict[str, Any] = {
     "show_tool_responses": False,
     "show_system_prompt": False,
     "debug": False,
+    # Output from a "!<command>" shell passthrough (see __main__.py) is added
+    # to conversation context as a user turn, truncated to this many
+    # characters. The terminal always shows the full, untruncated output —
+    # this only bounds what the model sees.
+    "shell_output_max_chars": 1000,
     # OpenRouter backend config. api_key may also be set via OPENROUTER_API_KEY env var.
     "openrouter_api_key": "",
     "openrouter_model": "openai/gpt-4o-mini",

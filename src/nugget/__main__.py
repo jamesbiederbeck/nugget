@@ -22,6 +22,25 @@ from .tools.memory import get_pinned as _get_pinned
 from .subagent import _session_id as _subagent_session_id
 
 
+def _run_shell_passthrough(cmd: str) -> str:
+    """
+    Run a shell command, streaming output to the terminal live (same as a
+    real shell) while also capturing it to return — the caller decides how
+    much of the return value (if any) enters conversation context.
+    """
+    proc = subprocess.Popen(
+        cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1,
+    )
+    captured = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        captured.append(line)
+    proc.wait()
+    return "".join(captured)
+
+
 def make_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="nugget",
@@ -366,9 +385,25 @@ def main() -> None:
             if shell_cmd:
                 display.print_shell_command(shell_cmd)
                 try:
-                    subprocess.run(shell_cmd, shell=True)
+                    output = _run_shell_passthrough(shell_cmd)
                 except OSError as e:
                     display.print_error(str(e))
+                else:
+                    max_chars = cfg.get("shell_output_max_chars", 1000)
+                    truncated = output[:max_chars]
+                    note = ""
+                    if len(output) > max_chars:
+                        note = f"\n... [truncated, {len(output) - max_chars} more characters]"
+                    context_msg = (
+                        "(I ran a shell command myself, directly in my terminal — not "
+                        "via your shell tool. This is just the output, for your "
+                        "reference. Don't re-run it.)\n"
+                        f"$ {shell_cmd}\n{truncated}{note}"
+                    )
+                    session = session_cell[0]
+                    session.add_user(context_msg)
+                    session.save()
+                    display.print_dim(f"[added to context, {len(truncated)} chars]")
             continue
         run_turn(user_input)
 
