@@ -59,6 +59,20 @@ DEFAULTS: dict[str, Any] = {
             "concise answer to the task. Do not ask follow-up questions."
         ),
     },
+    # MCP client: external MCP servers whose tools nugget's own tool loop can
+    # call. Dict of server-name -> {transport: "stdio"|"http", command/args/env
+    # (stdio) or url (http), include_tools, exclude_tools, approval_default}.
+    # Tools loaded this way are namespaced mcp__<server>__<tool> and are never
+    # exposed back out through nugget's own MCP server (see "mcp_server" below).
+    "mcp_servers": {},
+    # MCP server: exposes nugget's own (native, non-MCP-client) tools to other
+    # MCP clients when running nugget-server. Only tools whose approval
+    # resolves to a plain "allow" are ever listed/served — see
+    # src/nugget/mcp_server.py.
+    "mcp_server": {
+        "enabled": False,
+        "path": "/mcp",
+    },
 }
 
 

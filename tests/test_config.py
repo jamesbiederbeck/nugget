@@ -140,6 +140,35 @@ def test_profiles_stripped_from_data(tmp_config_file):
     assert cfg.get("profiles") is None
 
 
+def test_mcp_servers_default_empty(tmp_config_file):
+    cfg = Config()
+    assert cfg.get("mcp_servers") == {}
+
+
+def test_mcp_server_default_disabled(tmp_config_file):
+    cfg = Config()
+    assert cfg.get("mcp_server")["enabled"] is False
+    assert cfg.get("mcp_server")["path"] == "/mcp"
+
+
+def test_mcp_servers_profile_replaces_whole_block(tmp_config_file):
+    data = {
+        "mcp_servers": {"base-server": {"transport": "stdio", "command": "base"}},
+        "profiles": {
+            "with-mcp": {
+                "mcp_servers": {
+                    "filesystem": {"transport": "stdio", "command": "npx", "args": ["fs-server"]}
+                },
+                "mcp_server": {"enabled": True, "path": "/mcp"},
+            }
+        },
+    }
+    tmp_config_file.write_text(json.dumps(data))
+    cfg = Config(profile="with-mcp")
+    assert set(cfg.get("mcp_servers").keys()) == {"filesystem"}
+    assert cfg.get("mcp_server")["enabled"] is True
+
+
 def test_child_config_no_profile(tmp_config_file):
     tmp_config_file.write_text(json.dumps(_PROFILE_CONFIG))
     parent = Config({"temperature": 0.99}, profile="lean")

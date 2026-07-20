@@ -12,6 +12,7 @@ from .config import Config
 from .backends import make_backend, BackendError
 from .session import Session
 from . import tools as tool_registry
+from . import mcp_client
 from . import display
 from . import approval as approval_mod
 from . import commands as commands_mod
@@ -174,7 +175,7 @@ def main() -> None:
     else:
         exclude = None
 
-    active_schemas = tool_registry.schemas(include=include, exclude=exclude)
+    active_schemas = tool_registry.schemas(include=include, exclude=exclude) + mcp_client.schemas(cfg)
 
     # ── Session ──────────────────────────────────────────────────────────────
     if args.session == "last":
@@ -242,12 +243,12 @@ def main() -> None:
         return display.ask_yes_no(f"{display.BOLD}Allow? [y/N]{display.RESET} ")
 
     def tool_executor(name: str, args: dict) -> object:
-        approved, reason = approval_mod.check(
-            name, args, tool_registry.gate(name), cfg.approval_config()
-        )
+        is_mcp = mcp_client.owns(name)
+        gate = mcp_client.gate(name) if is_mcp else tool_registry.gate(name)
+        approved, reason = approval_mod.check(name, args, gate, cfg.approval_config())
         if not approved:
             return {"_denied": True, "reason": reason}
-        return tool_registry.execute(name, args)
+        return mcp_client.execute(name, args) if is_mcp else tool_registry.execute(name, args)
 
     def run_turn(user_input: str) -> None:
         session = session_cell[0]
