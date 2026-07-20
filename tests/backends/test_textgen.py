@@ -945,3 +945,148 @@ def test_run_loop_bad_display_path_is_error_stub(monkeypatch):
     assert exchanges[0]["result"]["status"] == "error"
     assert "invalid jmespath" in exchanges[0]["result"]["reason"]
     assert denials and "invalid jmespath" in denials[0][1]
+
+
+# ── Attachment handling / chat-mode dispatch ─────────────────────────────────
+
+from nugget.backends.textgen import _has_attachment  # noqa: E402
+
+
+def test_has_attachment_false_for_plain_history():
+    messages = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello", "tool_calls": [
+            {"id": "c1", "name": "calculator", "args": {}, "result": {"value": 2}},
+        ]},
+    ]
+    assert _has_attachment(messages) is False
+
+
+def test_has_attachment_true_when_history_has_image():
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "name": "filebrowser", "args": {}, "result": {
+                "_attachment": True, "images": [{"mime": "image/png", "data_b64": "x", "source": "a.png"}], "text": None,
+            }},
+        ]},
+    ]
+    assert _has_attachment(messages) is True
+
+
+def test_has_attachment_false_for_text_only_attachment():
+    # A pdf result with extracted text and no images shouldn't force chat mode.
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "name": "pdf", "args": {}, "result": {"_attachment": True, "images": [], "text": "hi"}},
+        ]},
+    ]
+    assert _has_attachment(messages) is False
+
+
+def test_run_uses_chat_mode_when_history_already_has_attachment(monkeypatch):
+    backend = _make_textgen_backend()
+    calls = []
+
+    def fake_complete(session, url, model, oai_messages, tool_schemas, temperature, max_tokens, debug=False):
+        calls.append(url)
+        return "All set.", None, [], None
+
+    monkeypatch.setattr("nugget.backends.textgen._openai_chat.complete", fake_complete)
+
+    messages = [
+        {"role": "user", "content": "what's in the photo?"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "name": "filebrowser", "args": {"operation": "cat", "path": "photo.png"}, "result": {
+                "_attachment": True, "images": [{"mime": "image/png", "data_b64": "AAAA", "source": "photo.png"}],
+                "text": None,
+            }},
+        ]},
+    ]
+
+    text, _, exchanges, finish_reason = backend.run(
+        messages=messages,
+        tool_schemas=[],
+        tool_executor=lambda n, a: {},
+        system_prompt="sys",
+    )
+    assert calls == ["http://nope/v1/chat/completions"]
+    assert text == "All set."
+    assert finish_reason == "stop"
+    assert exchanges == []  # seeded exchanges only come from *this* run()'s own token-mode loop
+
+
+def test_run_switches_to_chat_mode_mid_loop_on_attachment_result(monkeypatch):
+    backend = _make_textgen_backend()
+
+    fake_token_mode = _FakeBackend([
+        (f"<|tool_call>call:filebrowser{{operation:{_STR}cat{_STR},path:{_STR}photo.png{_STR}}}<tool_call|>", "stop"),
+    ])
+    monkeypatch.setattr(backend, "_complete", fake_token_mode)
+
+    chat_calls = []
+
+    def fake_complete(session, url, model, oai_messages, tool_schemas, temperature, max_tokens, debug=False):
+        chat_calls.append((url, oai_messages))
+        return "I see a blue square.", None, [], None
+
+    monkeypatch.setattr("nugget.backends.textgen._openai_chat.complete", fake_complete)
+
+    attachment_result = {
+        "_attachment": True,
+        "images": [{"mime": "image/png", "data_b64": "AAAA", "source": "photo.png"}],
+        "text": None,
+    }
+
+    text, _, exchanges, finish_reason = backend.run(
+        messages=[{"role": "user", "content": "describe photo.png"}],
+        tool_schemas=_schemas_for("filebrowser"),
+        tool_executor=lambda n, a: attachment_result,
+        system_prompt="sys",
+    )
+
+    # First call went through token mode (fake_token_mode consumed exactly
+    # one scripted completion), then the mid-loop attachment forced a
+    # fresh chat-mode call.
+    assert fake_token_mode._completions == []
+    assert len(chat_calls) == 1
+    assert chat_calls[0][0] == "http://nope/v1/chat/completions"
+    assert text == "I see a blue square."
+    assert finish_reason == "stop"
+    assert len(exchanges) == 1
+    assert exchanges[0]["name"] == "filebrowser"
+    assert exchanges[0]["result"] == attachment_result
+
+    # The synthetic follow-up user message carrying the image must be in
+    # the messages sent to chat mode.
+    sent_messages = chat_calls[0][1]
+    assert any(
+        m["role"] == "user" and isinstance(m.get("content"), list)
+        and any(p.get("type") == "image_url" for p in m["content"])
+        for m in sent_messages
+    )
+
+
+def test_run_chat_mode_propagates_mmproj_backend_error(monkeypatch):
+    from nugget.backends import BackendError
+
+    backend = _make_textgen_backend()
+
+    def fake_complete(session, url, model, oai_messages, tool_schemas, temperature, max_tokens, debug=False):
+        raise BackendError("no vision projector/mmproj loaded")
+
+    monkeypatch.setattr("nugget.backends.textgen._openai_chat.complete", fake_complete)
+
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "name": "filebrowser", "args": {}, "result": {
+                "_attachment": True, "images": [{"mime": "image/png", "data_b64": "x", "source": "a.png"}], "text": None,
+            }},
+        ]},
+    ]
+    with pytest.raises(BackendError, match="mmproj"):
+        backend.run(
+            messages=messages,
+            tool_schemas=[],
+            tool_executor=lambda n, a: {},
+            system_prompt="sys",
+        )

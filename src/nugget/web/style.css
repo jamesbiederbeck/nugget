@@ -160,6 +160,14 @@ body { display: flex; height: 100dvh; overflow: hidden; }
   max-height: 200px;
   overflow-y: auto;
 }
+.attachment-thumb {
+  display: block;
+  margin-top: 6px;
+  max-width: 100%;
+  max-height: 160px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
 
 /* ── Rendered markdown ── */
 .routed-display {

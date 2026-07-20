@@ -136,13 +136,30 @@ function appendToolCall(bubble, name, args) {
   return block;
 }
 
+function attachmentBodyHtml(result) {
+  const images = result.images || [];
+  if (!images.length) {
+    return escHtml('[attachment: text only]');
+  }
+  const sources = images.map(img => escHtml(img.source || '?')).join(', ');
+  const thumb = images[0];
+  const thumbHtml = thumb
+    ? `<img class="attachment-thumb" src="data:${escHtml(thumb.mime)};base64,${thumb.data_b64}" alt="${escHtml(thumb.source || '')}">`
+    : '';
+  return `[attached ${images.length} image(s): ${sources}]${thumbHtml}`;
+}
+
 function appendToolResult(bubble, name, result) {
   const block = document.createElement('div');
   block.className = 'tool-block';
   block.dataset.block = 'tool-result';
+  const isAttachment = result && typeof result === 'object' && result._attachment;
+  const bodyHtml = isAttachment
+    ? attachmentBodyHtml(result)
+    : escHtml(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
   block.innerHTML = `
     <div class="tool-header tool-result-header">← <span class="tool-name">${escHtml(name)}</span></div>
-    <div class="tool-body">${escHtml(typeof result === 'string' ? result : JSON.stringify(result, null, 2))}</div>
+    <div class="tool-body">${bodyHtml}</div>
   `;
   bubble.appendChild(block);
   return block;

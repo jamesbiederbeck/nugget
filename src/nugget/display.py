@@ -79,9 +79,20 @@ def print_tool_call(name: str, args: dict) -> None:
         print(f"  {DIM}{line}{RESET}")
 
 
+def _attachment_summary(result: dict) -> str:
+    images = result.get("images", [])
+    if images:
+        sources = ", ".join(img.get("source", "?") for img in images)
+        return f"[attached {len(images)} image(s): {sources}]"
+    return "[attachment: text only]"
+
+
 def print_tool_response(name: str, result: object) -> None:
     import json
-    result_str = json.dumps(result, indent=2) if isinstance(result, (dict, list)) else str(result)
+    if isinstance(result, dict) and result.get("_attachment"):
+        result_str = _attachment_summary(result)
+    else:
+        result_str = json.dumps(result, indent=2) if isinstance(result, (dict, list)) else str(result)
     print(f"{BOLD}{GREEN}← result:{RESET} {DIM}{name}{RESET}")
     for line in result_str.splitlines():
         print(f"  {DIM}{line}{RESET}")

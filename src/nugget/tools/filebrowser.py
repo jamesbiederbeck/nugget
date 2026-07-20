@@ -1,3 +1,5 @@
+import base64
+import mimetypes
 import os
 import shutil
 from datetime import datetime, timezone
@@ -17,7 +19,10 @@ SCHEMA = {
             "'write', 'append', 'replace', 'mkdir', 'move', 'backup', 'restore_backup'. "
             "An existing file must be read with 'cat' or 'read_lines' before it can be "
             "modified with 'write', 'append', or 'replace' — this catches edits made "
-            "blind, without having seen the current content."
+            "blind, without having seen the current content. "
+            "'cat' on an image file (.png/.jpg/.jpeg/.gif/.webp/.bmp) returns it as an "
+            "attachment for visual reading instead of text. 'cat' on a .pdf is rejected — "
+            "use the 'pdf' tool instead."
         ),
         "parameters": {
             "type": "object",
@@ -80,6 +85,7 @@ SCHEMA = {
 }
 
 _READ_OPS = {"cwd", "ls", "cat", "read_lines", "stat", "glob"}
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 # path -> mtime observed the last time it was read via 'cat' or 'read_lines'.
 # Used to require a fresh read before 'write'/'append'/'replace' touch an
@@ -93,6 +99,17 @@ def APPROVAL(args: dict) -> str:
 
 def _mark_read(target: Path) -> None:
     _read_cache[str(target)] = target.stat().st_mtime
+
+
+def _cat_image(target: Path) -> dict:
+    mime = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+    data = base64.b64encode(target.read_bytes()).decode()
+    _mark_read(target)
+    return {
+        "_attachment": True,
+        "images": [{"mime": mime, "data_b64": data, "source": target.name}],
+        "text": None,
+    }
 
 
 def _check_read_guard(target: Path) -> dict | None:
@@ -142,6 +159,10 @@ def execute(args: dict) -> dict:
                 return {"error": f"file not found: {target}"}
             if target.is_dir():
                 return {"error": f"is a directory: {target}"}
+            if target.suffix.lower() == ".pdf":
+                return {"error": f"{target} is a PDF; use the 'pdf' tool instead of 'cat'"}
+            if target.suffix.lower() in _IMAGE_EXTS:
+                return _cat_image(target)
             content = target.read_text(errors="replace")
             _mark_read(target)
             return {"path": str(target), "content": content, "size": target.stat().st_size}

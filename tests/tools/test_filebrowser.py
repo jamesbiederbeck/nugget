@@ -533,3 +533,53 @@ def test_replace_after_fresh_read_of_stale_file_succeeds(tmp_path):
     result = execute({"operation": "replace", "path": str(f), "old": "original", "new": "new"})
     assert "error" not in result
     assert f.read_text() == "new"
+
+
+# ---------------------------------------------------------------------------
+# Image / PDF attachment handling
+# ---------------------------------------------------------------------------
+
+def _make_png(path):
+    import struct
+    import zlib
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)
+    raw = b"".join(b"\x00" + bytes((10, 20, 30)) * 2 for _ in range(2))
+    idat = zlib.compress(raw, 9)
+    png = sig + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
+    path.write_bytes(png)
+
+
+def test_cat_image_returns_attachment(tmp_path):
+    f = tmp_path / "photo.png"
+    _make_png(f)
+    result = execute({"operation": "cat", "path": str(f)})
+    assert result["_attachment"] is True
+    assert result["text"] is None
+    assert len(result["images"]) == 1
+    img = result["images"][0]
+    assert img["mime"] == "image/png"
+    assert img["source"] == "photo.png"
+    import base64
+    assert base64.b64decode(img["data_b64"]) == f.read_bytes()
+
+
+def test_cat_image_marks_file_read(tmp_path):
+    f = tmp_path / "photo.png"
+    _make_png(f)
+    execute({"operation": "cat", "path": str(f)})
+    # write should now succeed since cat marked it read
+    result = execute({"operation": "write", "path": str(f), "content": "not an image anymore"})
+    assert "error" not in result
+
+
+def test_cat_pdf_redirects_to_pdf_tool(tmp_path):
+    f = tmp_path / "doc.pdf"
+    f.write_bytes(b"%PDF-1.4 fake")
+    result = execute({"operation": "cat", "path": str(f)})
+    assert "error" in result
+    assert "pdf" in result["error"].lower()

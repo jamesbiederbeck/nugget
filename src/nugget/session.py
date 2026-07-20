@@ -83,7 +83,11 @@ class Session:
                     data = json.load(f)
                 n_turns = sum(1 for m in data.get("messages", []) if m["role"] == "user")
                 first = next(
-                    (m["content"][:60] for m in data.get("messages", []) if m["role"] == "user"),
+                    (
+                        m["content"][:60] if isinstance(m.get("content"), str) else "(non-text message)"
+                        for m in data.get("messages", [])
+                        if m["role"] == "user"
+                    ),
                     "(empty)",
                 )
                 results.append(

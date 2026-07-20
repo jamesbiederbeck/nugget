@@ -133,6 +133,64 @@ def test_single_tool_call(mocker):
     assert tool_calls_seen == [("calculator", {"expression": "6*7"})]
 
 
+# ── Attachment (image) tool result mid-turn ──────────────────────────────────
+
+def test_attachment_result_mid_turn_expands_not_json_dumped(mocker):
+    """
+    A tool call producing an image mid-turn must be expanded into the
+    stub + synthetic image_url message pattern in the *next* request this
+    same run() sends — not json.dumps'd wholesale as a giant base64 string
+    into the tool-role message (the bug this test guards against).
+    """
+    backend = OpenRouterBackend(_make_config())
+    mock_post = mocker.patch.object(backend._session, "post")
+
+    first_resp = MagicMock()
+    first_resp.json.return_value = _chat_response(
+        content="",
+        tool_calls=[{
+            "id": "call_img",
+            "type": "function",
+            "function": {"name": "filebrowser", "arguments": '{"operation": "cat", "path": "photo.png"}'},
+        }],
+    )
+    second_resp = MagicMock()
+    second_resp.json.return_value = _chat_response("I see a blue square.")
+    mock_post.side_effect = [first_resp, second_resp]
+
+    attachment_result = {
+        "_attachment": True,
+        "images": [{"mime": "image/png", "data_b64": "AAAA", "source": "photo.png"}],
+        "text": None,
+    }
+
+    text, _, exchanges, finish = backend.run(
+        messages=[{"role": "user", "content": "what's in photo.png?"}],
+        tool_schemas=[{"type": "function", "function": {"name": "filebrowser", "parameters": {}}}],
+        tool_executor=lambda n, a: attachment_result,
+        system_prompt="sys",
+    )
+
+    assert text == "I see a blue square."
+    assert finish == "stop"
+    assert exchanges[0]["result"] == attachment_result
+
+    second_call_payload = mock_post.call_args_list[1].kwargs["json"]
+    sent_messages = second_call_payload["messages"]
+
+    tool_msgs = [m for m in sent_messages if m["role"] == "tool"]
+    assert len(tool_msgs) == 1
+    assert "AAAA" not in tool_msgs[0]["content"]  # base64 must not leak into the tool-role stub
+
+    image_followups = [
+        m for m in sent_messages
+        if m["role"] == "user" and isinstance(m.get("content"), list)
+        and any(p.get("type") == "image_url" for p in m["content"])
+    ]
+    assert len(image_followups) == 1
+    assert image_followups[0]["content"][-1]["image_url"]["url"] == "data:image/png;base64,AAAA"
+
+
 # ── Multi-tool loop ───────────────────────────────────────────────────────────
 
 def test_multi_tool_loop(mocker):

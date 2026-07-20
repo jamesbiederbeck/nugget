@@ -22,6 +22,7 @@ from typing import Callable
 import requests
 
 from . import BackendError, Backend
+from . import _openai_chat
 from ._routing import (
     _substitute_vars,
     _validate_sink,
@@ -61,77 +62,21 @@ class OpenRouterBackend(Backend):
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
-    def _build_messages(
-        self,
-        messages: list[dict],
-        system_prompt: str,
-        tool_exchanges_accumulated: list[dict],
-    ) -> list[dict]:
-        """
-        Build the OpenAI-format message list from nugget's internal format.
-        system_prompt goes as a "system" role message first.
-        tool_exchanges_accumulated holds completed tool calls for this turn.
-        """
-        out: list[dict] = [{"role": "system", "content": system_prompt}]
-        for msg in messages:
-            if msg["role"] == "user":
-                out.append({"role": "user", "content": msg["content"]})
-            elif msg["role"] == "assistant":
-                # Reconstruct the assistant turn from stored tool_calls if any.
-                assistant_msg: dict = {"role": "assistant", "content": msg.get("content") or ""}
-                if msg.get("tool_calls"):
-                    assistant_msg["tool_calls"] = [
-                        {
-                            "id": tc.get("id", f"call_{i}"),
-                            "type": "function",
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": json.dumps(tc["args"]),
-                            },
-                        }
-                        for i, tc in enumerate(msg["tool_calls"])
-                    ]
-                out.append(assistant_msg)
-                for tc in msg.get("tool_calls", []):
-                    out.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", "call_0"),
-                        "content": json.dumps(tc["result"]),
-                    })
-        return out
+    def _build_messages(self, messages: list[dict], system_prompt: str) -> list[dict]:
+        return _openai_chat.build_messages(messages, system_prompt)
 
     def _complete(
         self,
         oai_messages: list[dict],
         tool_schemas: list[dict],
     ) -> tuple[str, str | None, list[dict]]:
-        """
-        Non-streaming completion. Returns (text, thinking, tool_calls_raw).
-        tool_calls_raw is a list of OpenAI tool call dicts.
-        """
-        payload: dict = {
-            "model": self._model,
-            "messages": oai_messages,
-            "temperature": self.cfg.get("temperature", 0.7),
-            "max_tokens": self.cfg.get("max_tokens", 2048),
-        }
-        if tool_schemas:
-            payload["tools"] = tool_schemas
-            payload["tool_choice"] = "auto"
-        if self.cfg.get("debug"):
-            print(json.dumps({"url": self._url, "payload": payload}, indent=2))
-        try:
-            resp = self._session.post(self._url, json=payload, timeout=120)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            raise BackendError(str(e)) from e
-        data = resp.json()
-        self.last_usage = data.get("usage") or None
-        choice = data["choices"][0]
-        msg = choice["message"]
-        text = msg.get("content") or ""
-        thinking = msg.get("reasoning_content")
-        tool_calls = msg.get("tool_calls") or []
+        text, thinking, tool_calls, usage = _openai_chat.complete(
+            self._session, self._url, self._model, oai_messages, tool_schemas,
+            temperature=self.cfg.get("temperature", 0.7),
+            max_tokens=self.cfg.get("max_tokens", 2048),
+            debug=self.cfg.get("debug", False),
+        )
+        self.last_usage = usage
         return text, thinking, tool_calls
 
     def _complete_streaming(
@@ -142,102 +87,16 @@ class OpenRouterBackend(Backend):
         on_thinking: Callable[[str], None] | None,
         on_thinking_end: Callable[[], None] | None = None,
     ) -> tuple[str, str | None, list[dict]]:
-        """
-        Streaming completion. Fires on_token incrementally for visible text,
-        on_thinking incrementally for reasoning content as it arrives, and
-        on_thinking_end once reasoning gives way to visible content. Assembles
-        partial tool-call-argument deltas across chunks. Returns
-        (text, thinking, tool_calls_raw).
-        """
         self.last_usage = None
-        payload: dict = {
-            "model": self._model,
-            "messages": oai_messages,
-            "temperature": self.cfg.get("temperature", 0.7),
-            "max_tokens": self.cfg.get("max_tokens", 2048),
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-        if tool_schemas:
-            payload["tools"] = tool_schemas
-            payload["tool_choice"] = "auto"
-        if self.cfg.get("debug"):
-            print(json.dumps({"url": self._url, "streaming": True}, indent=2))
-        try:
-            resp = self._session.post(self._url, json=payload, stream=True, timeout=120)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            raise BackendError(str(e)) from e
-
-        text_parts: list[str] = []
-        thinking_parts: list[str] = []
-        # tool_calls_buf: index → {"id", "name", "args_str"}
-        tool_calls_buf: dict[int, dict] = {}
-
-        for raw_line in resp.iter_lines():
-            if not raw_line:
-                continue
-            if raw_line == b"data: [DONE]":
-                break
-            if not raw_line.startswith(b"data: "):
-                continue
-            chunk = json.loads(raw_line[6:])
-            # Usage-only chunk sent before [DONE] when stream_options.include_usage is set
-            if not chunk.get("choices"):
-                if "usage" in chunk:
-                    self.last_usage = chunk["usage"]
-                continue
-            choice = chunk["choices"][0]
-            delta = choice.get("delta", {})
-
-            # Reasoning / thinking
-            reasoning_delta = delta.get("reasoning_content") or ""
-            if reasoning_delta:
-                thinking_parts.append(reasoning_delta)
-                if on_thinking:
-                    on_thinking(reasoning_delta)
-
-            # Visible text
-            content_delta = delta.get("content") or ""
-            if content_delta:
-                if thinking_parts and not text_parts and on_thinking_end:
-                    on_thinking_end()
-                text_parts.append(content_delta)
-                if on_token:
-                    on_token(content_delta)
-
-            # Tool call argument deltas — merge by index
-            for tc_delta in delta.get("tool_calls") or []:
-                idx = tc_delta.get("index", 0)
-                if idx not in tool_calls_buf:
-                    tool_calls_buf[idx] = {"id": "", "name": "", "args_str": ""}
-                buf = tool_calls_buf[idx]
-                if tc_delta.get("id"):
-                    buf["id"] = tc_delta["id"]
-                fn = tc_delta.get("function") or {}
-                if fn.get("name"):
-                    buf["name"] += fn["name"]
-                if fn.get("arguments"):
-                    buf["args_str"] += fn["arguments"]
-
-        full_text = "".join(text_parts)
-        full_thinking = "".join(thinking_parts) or None
-
-        # If reasoning never gave way to visible content (e.g. straight into
-        # a tool call), close the block here instead of leaving it dangling.
-        if full_thinking and not text_parts and on_thinking_end:
-            on_thinking_end()
-
-        # Convert buf → OpenAI tool_calls format, preserving stream order via index
-        tool_calls_raw = [
-            {
-                "id": buf["id"],
-                "type": "function",
-                "function": {"name": buf["name"], "arguments": buf["args_str"]},
-            }
-            for _, buf in sorted(tool_calls_buf.items())
-        ]
-        return full_text, full_thinking, tool_calls_raw
+        text, thinking, tool_calls, usage = _openai_chat.complete_streaming(
+            self._session, self._url, self._model, oai_messages, tool_schemas,
+            temperature=self.cfg.get("temperature", 0.7),
+            max_tokens=self.cfg.get("max_tokens", 2048),
+            on_token=on_token, on_thinking=on_thinking, on_thinking_end=on_thinking_end,
+            debug=self.cfg.get("debug", False),
+        )
+        self.last_usage = usage
+        return text, thinking, tool_calls
 
     # ── Main entry point ─────────────────────────────────────────────────────
 
@@ -260,7 +119,7 @@ class OpenRouterBackend(Backend):
         **kwargs,
     ) -> tuple[str, str | None, list[dict], str | None]:
         # Build the running message list that we extend with each tool round.
-        oai_messages = self._build_messages(messages, system_prompt, [])
+        oai_messages = self._build_messages(messages, system_prompt)
         tool_exchanges: list[dict] = []
         # Turn-scoped variable bindings for $name pipes.
         bindings: dict[str, object] = {}
@@ -334,6 +193,12 @@ class OpenRouterBackend(Backend):
                             if on_tool_denied:
                                 on_tool_denied(name, reason)
                             result_for_context = {"error": reason}
+                        elif isinstance(result, dict) and result.get("_attachment") and result.get("images"):
+                            # Sink routing isn't supported for attachments in
+                            # v1 — only the default (goes back to the model) path.
+                            if sink is None and on_tool_response:
+                                on_tool_response(name, result)
+                            result_for_context = result
                         else:
                             result_for_context = _route_tool_result(
                                 name=name,
@@ -354,11 +219,15 @@ class OpenRouterBackend(Backend):
                     "type": "function",
                     "function": {"name": name, "arguments": json.dumps(args)},
                 })
-                tool_result_messages.append({
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "content": json.dumps(result_for_context),
-                })
+                if isinstance(result_for_context, dict) and result_for_context.get("_attachment") and result_for_context.get("images"):
+                    tool_result_messages.append(_openai_chat._tool_stub_message({"id": call_id}, result_for_context))
+                    tool_result_messages.append(_openai_chat._attachment_followup_message(result_for_context))
+                else:
+                    tool_result_messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": json.dumps(result_for_context),
+                    })
 
             # Append this round's assistant message + tool results
             oai_messages.append({
