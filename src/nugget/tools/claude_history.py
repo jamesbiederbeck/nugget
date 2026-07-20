@@ -1,0 +1,180 @@
+import subprocess
+
+APPROVAL = "allow"
+
+SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "claude_history",
+        "description": (
+            "Search and read past Claude Code conversations via the claude-history "
+            "agent protocol. Workflow: 'search' finds conversations (returns ch_ ref "
+            "handles with message refs like m7..m9); 'within' narrows the search to "
+            "one conversation; 'outline' summarises a conversation's structure; "
+            "'read' reads message ranges, e.g. refs=['ch_1234abcd5678:m7..m9']. "
+            "Use search_mode 'semantic' or 'hybrid' for conceptual recall, 'lexical' "
+            "or 'exact' for identifiers, filenames, and error messages. Always pass "
+            "the ch_ handles emitted by search, never session UUIDs. Prefer bounded "
+            "reads over full transcripts. Scope defaults to the current workspace — "
+            "pass scope='global' to search every workspace."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "description": "One of: 'search', 'within', 'read', 'outline'",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search query (required for 'search' and 'within')",
+                },
+                "conversation": {
+                    "type": "string",
+                    "description": (
+                        "Conversation ref handle, e.g. 'ch_1234abcd5678' "
+                        "(required for 'within' and 'outline')"
+                    ),
+                },
+                "refs": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Conversation or message range refs for 'read', e.g. "
+                        "['ch_1234abcd5678', 'ch_1234abcd5678:m7..m9']"
+                    ),
+                },
+                "focus": {
+                    "type": "string",
+                    "description": (
+                        "Message range to prioritise when 'read' output is "
+                        "truncated by the budget, e.g. 'm8..m8'"
+                    ),
+                },
+                "search_mode": {
+                    "type": "string",
+                    "description": (
+                        "Search algorithm for 'search' and 'within': 'hybrid' "
+                        "(default), 'semantic', 'lexical', or 'exact'"
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Scope for 'search': 'local' (default) or 'global'",
+                },
+                "top": {
+                    "type": "integer",
+                    "description": "Max results for 'search' (default 10) or 'within' (default 20)",
+                },
+                "hits_per_conv": {
+                    "type": "integer",
+                    "description": "Max evidence hits per conversation in 'search' output (default 2)",
+                },
+                "budget": {
+                    "type": "integer",
+                    "description": "Output token budget for 'read' and 'outline' (default 6000)",
+                },
+                "include_tools": {
+                    "type": "boolean",
+                    "description": "Include tool calls in 'read' and 'outline' output (default false)",
+                },
+                "include_tool_results": {
+                    "type": "boolean",
+                    "description": "Include tool results in 'read' and 'outline' output (default false)",
+                },
+                "include_thinking": {
+                    "type": "boolean",
+                    "description": "Include thinking blocks in 'read' and 'outline' output (default false)",
+                },
+            },
+            "required": ["operation"],
+        },
+    },
+}
+
+_MODES = ("hybrid", "semantic", "lexical", "exact")
+
+
+def _run(cmd: list[str], timeout: int = 60) -> dict:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return {"error": "claude-history not found — install it first"}
+    except subprocess.TimeoutExpired:
+        return {"error": f"timed out after {timeout}s"}
+    if result.returncode != 0:
+        err = result.stderr.strip()
+        return {"error": err or f"claude-history exited with code {result.returncode}"}
+    return {"output": result.stdout.strip()}
+
+
+def _read_flags(args: dict) -> list[str]:
+    flags = []
+    if args.get("budget"):
+        flags.extend(["--budget", str(args["budget"])])
+    if args.get("include_tools"):
+        flags.append("--tools")
+    if args.get("include_tool_results"):
+        flags.append("--tool-results")
+    if args.get("include_thinking"):
+        flags.append("--thinking")
+    return flags
+
+
+def execute(args: dict) -> dict:
+    op = args.get("operation", "")
+    mode = args.get("search_mode")
+
+    if op == "search":
+        query = args.get("query")
+        if not query:
+            return {"error": "'search' requires query"}
+        cmd = ["claude-history", "agent", "search"]
+        cmd.append("--all" if args.get("scope") == "global" else "--local")
+        if args.get("top"):
+            cmd.extend(["--top", str(args["top"])])
+        if args.get("hits_per_conv"):
+            cmd.extend(["--hits-per-conv", str(args["hits_per_conv"])])
+        if mode in _MODES:
+            cmd.append(f"--{mode}")
+        cmd.append(query)
+        # first semantic search may build the embedding index
+        return _run(cmd, timeout=300)
+
+    elif op == "within":
+        conversation = args.get("conversation")
+        query = args.get("query")
+        if not conversation:
+            return {"error": "'within' requires conversation"}
+        if not query:
+            return {"error": "'within' requires query"}
+        cmd = ["claude-history", "agent", "within"]
+        if args.get("top"):
+            cmd.extend(["--top", str(args["top"])])
+        if mode in _MODES:
+            cmd.append(f"--{mode}")
+        cmd.extend([conversation, query])
+        return _run(cmd, timeout=300)
+
+    elif op == "read":
+        refs = args.get("refs") or (
+            [args["conversation"]] if args.get("conversation") else None
+        )
+        if not refs:
+            return {"error": "'read' requires refs"}
+        cmd = ["claude-history", "agent", "read", *_read_flags(args)]
+        if args.get("focus"):
+            cmd.extend(["--focus", args["focus"]])
+        cmd.extend(refs)
+        return _run(cmd)
+
+    elif op == "outline":
+        conversation = args.get("conversation")
+        if not conversation:
+            return {"error": "'outline' requires conversation"}
+        cmd = ["claude-history", "agent", "outline", *_read_flags(args)]
+        cmd.append(conversation)
+        return _run(cmd)
+
+    else:
+        return {"error": f"unknown operation '{op}' — use search, within, read, or outline"}
