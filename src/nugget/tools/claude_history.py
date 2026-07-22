@@ -8,7 +8,7 @@ SCHEMA = {
     "function": {
         "name": "claude_history",
         "description": (
-            "Search and read past Claude Code conversations via the claude-history "
+            "Search and read past Claude Code conversations (AKA *'Sessions'*) via the claude-history "
             "agent protocol. Workflow: 'search' finds conversations (returns ch_ ref "
             "handles with message refs like m7..m9); 'within' narrows the search to "
             "one conversation; 'outline' summarises a conversation's structure; "
