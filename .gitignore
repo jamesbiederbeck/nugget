@@ -31,5 +31,10 @@ docker/config/config.json
 # Bench artifacts
 bench/bench.db
 
+# Scratch / local sandbox
+foo.txt
+sandbox/
+shell_context_test.txt
+
 # OS
 .DS_Store
