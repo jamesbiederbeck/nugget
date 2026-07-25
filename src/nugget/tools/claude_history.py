@@ -1,5 +1,8 @@
+import json
 import os
 import subprocess
+from datetime import datetime
+from pathlib import Path
 
 APPROVAL = "allow"
 
@@ -9,22 +12,26 @@ SCHEMA = {
         "name": "claude_history",
         "description": (
             "Search and read past Claude Code conversations (AKA *'Sessions'*) via the claude-history "
-            "agent protocol. Workflow: 'search' finds conversations (returns ch_ ref "
-            "handles with message refs like m7..m9); 'within' narrows the search to "
-            "one conversation; 'outline' summarises a conversation's structure; "
-            "'read' reads message ranges, e.g. refs=['ch_1234abcd5678:m7..m9']. "
-            "Use search_mode 'semantic' or 'hybrid' for conceptual recall, 'lexical' "
-            "or 'exact' for identifiers, filenames, and error messages. Always pass "
-            "the ch_ handles emitted by search, never session UUIDs. Prefer bounded "
-            "reads over full transcripts. Scope defaults to the nugget process's "
-            "current working directory — pass scope='global' to search every workspace."
+            "agent protocol. Workflow: 'list' shows the most recent sessions for a "
+            "directory (no ch_ ref needed — just session ids, timestamps, previews); "
+            "'search' finds conversations (returns ch_ ref handles with message refs "
+            "like m7..m9); 'within' narrows the search to one conversation; 'outline' "
+            "summarises a conversation's structure; 'read' reads message ranges, e.g. "
+            "refs=['ch_1234abcd5678:m7..m9']. Use search_mode 'semantic' or 'hybrid' "
+            "for conceptual recall, 'lexical' or 'exact' for identifiers, filenames, "
+            "and error messages. Always pass the ch_ handles emitted by search, never "
+            "session UUIDs, to 'within'/'read'/'outline'. Prefer bounded reads over "
+            "full transcripts. 'list' and 'search' (when scope='local') default to "
+            "the nugget process's current working directory — pass a 'directory' arg "
+            "to target a different workspace, or scope='global' on 'search' to search "
+            "every workspace."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "description": "One of: 'search', 'within', 'read', 'outline'",
+                    "description": "One of: 'list', 'search', 'within', 'read', 'outline'",
                 },
                 "query": {
                     "type": "string",
@@ -63,9 +70,21 @@ SCHEMA = {
                     "type": "string",
                     "description": "Scope for 'search': 'local' (default) or 'global'",
                 },
+                "directory": {
+                    "type": "string",
+                    "description": (
+                        "Absolute directory path to scope the operation to. Used by "
+                        "'list' (which directory's sessions to list) and 'search' "
+                        "(when scope='local', which workspace to restrict to). "
+                        "Defaults to the nugget process's current working directory."
+                    ),
+                },
                 "top": {
                     "type": "integer",
-                    "description": "Max results for 'search' (default 10) or 'within' (default 20)",
+                    "description": (
+                        "Max results for 'list' (default 10), 'search' (default 10), "
+                        "or 'within' (default 20)"
+                    ),
                 },
                 "hits_per_conv": {
                     "type": "integer",
@@ -96,10 +115,10 @@ SCHEMA = {
 _MODES = ("hybrid", "semantic", "lexical", "exact")
 
 
-def _run(cmd: list[str], timeout: int = 60) -> dict:
+def _run(cmd: list[str], timeout: int = 60, cwd: str | None = None) -> dict:
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, cwd=os.getcwd()
+            cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd or os.getcwd()
         )
     except FileNotFoundError:
         return {"error": "claude-history not found — install it first"}
@@ -124,11 +143,70 @@ def _read_flags(args: dict) -> list[str]:
     return flags
 
 
+def _project_dir(directory: str) -> Path:
+    resolved = os.path.abspath(os.path.expanduser(directory))
+    slug = resolved.replace("/", "-").replace(".", "-")
+    return Path.home() / ".claude" / "projects" / slug
+
+
+def _session_preview(path: Path, max_chars: int = 200) -> str:
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("type") != "user":
+                    continue
+                content = obj.get("message", {}).get("content")
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    text = " ".join(
+                        part.get("text", "")
+                        for part in content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                else:
+                    text = ""
+                text = text.strip()
+                if text:
+                    return text[:max_chars]
+    except OSError:
+        pass
+    return ""
+
+
+def _list_sessions(directory: str, top: int) -> dict:
+    proj_dir = _project_dir(directory)
+    if not proj_dir.is_dir():
+        return {"error": f"no session history found for directory '{directory}'"}
+    files = sorted(
+        (p for p in proj_dir.glob("*.jsonl") if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )[:top]
+    sessions = [
+        {
+            "session": p.stem,
+            "modified": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds"),
+            "preview": _session_preview(p),
+        }
+        for p in files
+    ]
+    return {"output": json.dumps(sessions, indent=2)}
+
+
 def execute(args: dict) -> dict:
     op = args.get("operation", "")
     mode = args.get("search_mode")
+    directory = args.get("directory") or os.getcwd()
 
-    if op == "search":
+    if op == "list":
+        return _list_sessions(directory, args.get("top") or 10)
+
+    elif op == "search":
         query = args.get("query")
         if not query:
             return {"error": "'search' requires query"}
@@ -142,7 +220,7 @@ def execute(args: dict) -> dict:
             cmd.append(f"--{mode}")
         cmd.append(query)
         # first semantic search may build the embedding index
-        return _run(cmd, timeout=300)
+        return _run(cmd, timeout=300, cwd=directory)
 
     elif op == "within":
         conversation = args.get("conversation")
@@ -180,4 +258,4 @@ def execute(args: dict) -> dict:
         return _run(cmd)
 
     else:
-        return {"error": f"unknown operation '{op}' — use search, within, read, or outline"}
+        return {"error": f"unknown operation '{op}' — use list, search, within, read, or outline"}
