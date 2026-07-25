@@ -19,6 +19,7 @@ COMMANDS: list[tuple[str, list[str], str]] = [
     ("/clear",    [],        "clear message history (keeps session file)"),
     ("/rewind",   [],        "undo the last turn"),
     ("/prompt",   [],        "show the current system prompt"),
+    ("/export",   [],        "[FILE]  write the full rendered model payload for this session to FILE"),
     ("/sessions", [],        "list saved sessions"),
     ("/session",  [],        "[ID]  show current session ID, or switch to ID"),
     ("/tools",    [],        "list active tools"),
@@ -57,6 +58,7 @@ class CommandContext:
     active_schemas_cell: list       # [list[dict]] — mutable
     backend_cell: list              # [Backend] — mutable
     get_system_prompt: Callable[[], str]
+    get_thinking_effort: Callable[[], int]
     sessions_path: Path
     cli_overrides: dict             # overrides captured before Config() construction
     cli_include: list | None        # from --include-tools flag
@@ -95,6 +97,20 @@ def dispatch(raw: str, ctx: CommandContext) -> str | None:
 
     elif cmd == "/prompt":
         display.print_system_prompt(ctx.get_system_prompt())
+
+    elif cmd == "/export":
+        from .backends import render_request
+        path = Path(arg).expanduser() if arg else Path.cwd() / f"nugget-export-{session.id}.txt"
+        rendered = render_request(
+            ctx.backend_cell[0],
+            session.messages,
+            ctx.active_schemas_cell[0],
+            ctx.get_system_prompt(),
+            ctx.get_thinking_effort(),
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rendered)
+        display.print_dim(f"Exported rendered prompt to {path} ({len(rendered)} chars)")
 
     elif cmd == "/sessions":
         sessions = Session.list_sessions(ctx.sessions_path)

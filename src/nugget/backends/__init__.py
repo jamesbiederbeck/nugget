@@ -53,3 +53,25 @@ def make_backend(config) -> Backend:
         return OpenRouterBackend(config)
     raise ValueError(f"unknown backend: {name!r}")
 
+
+def render_request(
+    backend: Backend,
+    messages: list[dict],
+    tool_schemas: list[dict],
+    system_prompt: str,
+    thinking_effort: int = 0,
+) -> str:
+    """
+    Render the exact literal payload `backend.run()` would send upstream for
+    this conversation, using the same assembly code `run()` calls — without
+    making a network request. Used by `/export` to dump model context to file.
+    """
+    from .textgen import TextgenBackend, build_prompt, _has_attachment
+
+    if isinstance(backend, TextgenBackend) and not _has_attachment(messages):
+        return build_prompt(messages, tool_schemas, system_prompt, thinking_effort)
+
+    import json
+    from ._openai_chat import build_messages
+    return json.dumps(build_messages(messages, system_prompt), indent=2, ensure_ascii=False)
+

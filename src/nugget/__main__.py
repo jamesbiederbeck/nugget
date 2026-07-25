@@ -366,6 +366,7 @@ def main() -> None:
         active_schemas_cell=active_schemas_cell,
         backend_cell=backend_cell,
         get_system_prompt=_system_prompt,
+        get_thinking_effort=get_thinking_effort,
         sessions_path=cfg.sessions_path(),
         cli_overrides=_cli_overrides,
         cli_include=_cli_include,
