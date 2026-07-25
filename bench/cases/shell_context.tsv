@@ -1,0 +1,245 @@
+id	prompt_id	prompt	tools	constraint_type	constraint_value	target	notes
+tagA_gitstatus.no_shell_call	tagA_gitstatus	"<user ran command>`git status --short`
+<command output>```
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+```
+Which file path in that output contains the word CONFIG?"	shell	absent		tool_call[0].name	tag + fenced output, no closing tag — should NOT re-invoke shell tool
+tagA_gitstatus.content	tagA_gitstatus	"<user ran command>`git status --short`
+<command output>```
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+```
+Which file path in that output contains the word CONFIG?"	shell	regex	(?i)tool_docs/CONFIG\.md|CONFIG\.md	response	tag + fenced output, no closing tag — should correctly reference the shown output
+tagA_httpcode.no_shell_call	tagA_httpcode	"<user ran command>`curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info`
+<command output>```
+200
+```
+Based on that HTTP status code, was the request successful?"	shell	absent		tool_call[0].name	tag + fenced output, no closing tag — should NOT re-invoke shell tool
+tagA_httpcode.content	tagA_httpcode	"<user ran command>`curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info`
+<command output>```
+200
+```
+Based on that HTTP status code, was the request successful?"	shell	regex	(?i)\b200\b|success|yes\b	response	tag + fenced output, no closing tag — should correctly reference the shown output
+tagA_lsoutput.no_shell_call	tagA_lsoutput	"<user ran command>`ls -la /tmp/bench_test_dir`
+<command output>```
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+```
+What is the name of the only regular file listed in that output?"	shell	absent		tool_call[0].name	tag + fenced output, no closing tag — should NOT re-invoke shell tool
+tagA_lsoutput.content	tagA_lsoutput	"<user ran command>`ls -la /tmp/bench_test_dir`
+<command output>```
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+```
+What is the name of the only regular file listed in that output?"	shell	regex	(?i)notes\.txt	response	tag + fenced output, no closing tag — should correctly reference the shown output
+tagA_pyversion.no_shell_call	tagA_pyversion	"<user ran command>`python3 --version`
+<command output>```
+Python 3.11.11
+```
+What Python version does that output show?"	shell	absent		tool_call[0].name	tag + fenced output, no closing tag — should NOT re-invoke shell tool
+tagA_pyversion.content	tagA_pyversion	"<user ran command>`python3 --version`
+<command output>```
+Python 3.11.11
+```
+What Python version does that output show?"	shell	regex	3\.11\.11|3\.11	response	tag + fenced output, no closing tag — should correctly reference the shown output
+tagA_diskusage.no_shell_call	tagA_diskusage	"<user ran command>`df -h /`
+<command output>```
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+```
+What percentage of the root filesystem is used, according to that output?"	shell	absent		tool_call[0].name	tag + fenced output, no closing tag — should NOT re-invoke shell tool
+tagA_diskusage.content	tagA_diskusage	"<user ran command>`df -h /`
+<command output>```
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+```
+What percentage of the root filesystem is used, according to that output?"	shell	regex	67	response	tag + fenced output, no closing tag — should correctly reference the shown output
+tagB_gitstatus.no_shell_call	tagB_gitstatus	"<user ran command>`git status --short`</user ran command>
+<command output>```
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+```</command output>
+Which file path in that output contains the word CONFIG?"	shell	absent		tool_call[0].name	tag + fenced output, explicit closing tags — should NOT re-invoke shell tool
+tagB_gitstatus.content	tagB_gitstatus	"<user ran command>`git status --short`</user ran command>
+<command output>```
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+```</command output>
+Which file path in that output contains the word CONFIG?"	shell	regex	(?i)tool_docs/CONFIG\.md|CONFIG\.md	response	tag + fenced output, explicit closing tags — should correctly reference the shown output
+tagB_httpcode.no_shell_call	tagB_httpcode	"<user ran command>`curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info`</user ran command>
+<command output>```
+200
+```</command output>
+Based on that HTTP status code, was the request successful?"	shell	absent		tool_call[0].name	tag + fenced output, explicit closing tags — should NOT re-invoke shell tool
+tagB_httpcode.content	tagB_httpcode	"<user ran command>`curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info`</user ran command>
+<command output>```
+200
+```</command output>
+Based on that HTTP status code, was the request successful?"	shell	regex	(?i)\b200\b|success|yes\b	response	tag + fenced output, explicit closing tags — should correctly reference the shown output
+tagB_lsoutput.no_shell_call	tagB_lsoutput	"<user ran command>`ls -la /tmp/bench_test_dir`</user ran command>
+<command output>```
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+```</command output>
+What is the name of the only regular file listed in that output?"	shell	absent		tool_call[0].name	tag + fenced output, explicit closing tags — should NOT re-invoke shell tool
+tagB_lsoutput.content	tagB_lsoutput	"<user ran command>`ls -la /tmp/bench_test_dir`</user ran command>
+<command output>```
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+```</command output>
+What is the name of the only regular file listed in that output?"	shell	regex	(?i)notes\.txt	response	tag + fenced output, explicit closing tags — should correctly reference the shown output
+tagB_pyversion.no_shell_call	tagB_pyversion	"<user ran command>`python3 --version`</user ran command>
+<command output>```
+Python 3.11.11
+```</command output>
+What Python version does that output show?"	shell	absent		tool_call[0].name	tag + fenced output, explicit closing tags — should NOT re-invoke shell tool
+tagB_pyversion.content	tagB_pyversion	"<user ran command>`python3 --version`</user ran command>
+<command output>```
+Python 3.11.11
+```</command output>
+What Python version does that output show?"	shell	regex	3\.11\.11|3\.11	response	tag + fenced output, explicit closing tags — should correctly reference the shown output
+tagB_diskusage.no_shell_call	tagB_diskusage	"<user ran command>`df -h /`</user ran command>
+<command output>```
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+```</command output>
+What percentage of the root filesystem is used, according to that output?"	shell	absent		tool_call[0].name	tag + fenced output, explicit closing tags — should NOT re-invoke shell tool
+tagB_diskusage.content	tagB_diskusage	"<user ran command>`df -h /`</user ran command>
+<command output>```
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+```</command output>
+What percentage of the root filesystem is used, according to that output?"	shell	regex	67	response	tag + fenced output, explicit closing tags — should correctly reference the shown output
+channel_gitstatus.no_shell_call	channel_gitstatus	"<|channel>shell_output
+$ git status --short
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+<channel|>
+Which file path in that output contains the word CONFIG?"	shell	absent		tool_call[0].name	custom <|channel>shell_output ... <channel|> block — should NOT re-invoke shell tool
+channel_gitstatus.content	channel_gitstatus	"<|channel>shell_output
+$ git status --short
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+<channel|>
+Which file path in that output contains the word CONFIG?"	shell	regex	(?i)tool_docs/CONFIG\.md|CONFIG\.md	response	custom <|channel>shell_output ... <channel|> block — should correctly reference the shown output
+channel_httpcode.no_shell_call	channel_httpcode	"<|channel>shell_output
+$ curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info
+200
+<channel|>
+Based on that HTTP status code, was the request successful?"	shell	absent		tool_call[0].name	custom <|channel>shell_output ... <channel|> block — should NOT re-invoke shell tool
+channel_httpcode.content	channel_httpcode	"<|channel>shell_output
+$ curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info
+200
+<channel|>
+Based on that HTTP status code, was the request successful?"	shell	regex	(?i)\b200\b|success|yes\b	response	custom <|channel>shell_output ... <channel|> block — should correctly reference the shown output
+channel_lsoutput.no_shell_call	channel_lsoutput	"<|channel>shell_output
+$ ls -la /tmp/bench_test_dir
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+<channel|>
+What is the name of the only regular file listed in that output?"	shell	absent		tool_call[0].name	custom <|channel>shell_output ... <channel|> block — should NOT re-invoke shell tool
+channel_lsoutput.content	channel_lsoutput	"<|channel>shell_output
+$ ls -la /tmp/bench_test_dir
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+<channel|>
+What is the name of the only regular file listed in that output?"	shell	regex	(?i)notes\.txt	response	custom <|channel>shell_output ... <channel|> block — should correctly reference the shown output
+channel_pyversion.no_shell_call	channel_pyversion	"<|channel>shell_output
+$ python3 --version
+Python 3.11.11
+<channel|>
+What Python version does that output show?"	shell	absent		tool_call[0].name	custom <|channel>shell_output ... <channel|> block — should NOT re-invoke shell tool
+channel_pyversion.content	channel_pyversion	"<|channel>shell_output
+$ python3 --version
+Python 3.11.11
+<channel|>
+What Python version does that output show?"	shell	regex	3\.11\.11|3\.11	response	custom <|channel>shell_output ... <channel|> block — should correctly reference the shown output
+channel_diskusage.no_shell_call	channel_diskusage	"<|channel>shell_output
+$ df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+<channel|>
+What percentage of the root filesystem is used, according to that output?"	shell	absent		tool_call[0].name	custom <|channel>shell_output ... <channel|> block — should NOT re-invoke shell tool
+channel_diskusage.content	channel_diskusage	"<|channel>shell_output
+$ df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+<channel|>
+What percentage of the root filesystem is used, according to that output?"	shell	regex	67	response	custom <|channel>shell_output ... <channel|> block — should correctly reference the shown output
+plain_gitstatus.no_shell_call	plain_gitstatus	"$ git status --short
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+Which file path in that output contains the word CONFIG?"	shell	absent		tool_call[0].name	no framing at all (control / known-bad baseline) — should NOT re-invoke shell tool
+plain_gitstatus.content	plain_gitstatus	"$ git status --short
+ M src/nugget/__main__.py
+ M src/nugget/config.py
+ M src/nugget/tools/claude_history.py
+ M tool_docs/CONFIG.md
+?? sandbox/
+Which file path in that output contains the word CONFIG?"	shell	regex	(?i)tool_docs/CONFIG\.md|CONFIG\.md	response	no framing at all (control / known-bad baseline) — should correctly reference the shown output
+plain_httpcode.no_shell_call	plain_httpcode	"$ curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info
+200
+Based on that HTTP status code, was the request successful?"	shell	absent		tool_call[0].name	no framing at all (control / known-bad baseline) — should NOT re-invoke shell tool
+plain_httpcode.content	plain_httpcode	"$ curl -s -o /dev/null -w ""%{http_code}"" http://127.0.0.1:5000/v1/internal/model/info
+200
+Based on that HTTP status code, was the request successful?"	shell	regex	(?i)\b200\b|success|yes\b	response	no framing at all (control / known-bad baseline) — should correctly reference the shown output
+plain_lsoutput.no_shell_call	plain_lsoutput	"$ ls -la /tmp/bench_test_dir
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+What is the name of the only regular file listed in that output?"	shell	absent		tool_call[0].name	no framing at all (control / known-bad baseline) — should NOT re-invoke shell tool
+plain_lsoutput.content	plain_lsoutput	"$ ls -la /tmp/bench_test_dir
+total 12
+drwxr-xr-x 2 user   user 4096 Jul 20 10:00 .
+drwxr-xr-x 3 user   user 4096 Jul 20 10:00 ..
+-rw-r--r-- 1 user   user   42 Jul 20 10:00 notes.txt
+What is the name of the only regular file listed in that output?"	shell	regex	(?i)notes\.txt	response	no framing at all (control / known-bad baseline) — should correctly reference the shown output
+plain_pyversion.no_shell_call	plain_pyversion	"$ python3 --version
+Python 3.11.11
+What Python version does that output show?"	shell	absent		tool_call[0].name	no framing at all (control / known-bad baseline) — should NOT re-invoke shell tool
+plain_pyversion.content	plain_pyversion	"$ python3 --version
+Python 3.11.11
+What Python version does that output show?"	shell	regex	3\.11\.11|3\.11	response	no framing at all (control / known-bad baseline) — should correctly reference the shown output
+plain_diskusage.no_shell_call	plain_diskusage	"$ df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+What percentage of the root filesystem is used, according to that output?"	shell	absent		tool_call[0].name	no framing at all (control / known-bad baseline) — should NOT re-invoke shell tool
+plain_diskusage.content	plain_diskusage	"$ df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        50G   32G   16G  67% /
+What percentage of the root filesystem is used, according to that output?"	shell	regex	67	response	no framing at all (control / known-bad baseline) — should correctly reference the shown output
