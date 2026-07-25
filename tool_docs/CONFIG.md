@@ -107,6 +107,7 @@ Created automatically on first run with defaults.
 | `openrouter_model` | `"openai/gpt-4o-mini"` | Default model for the openrouter backend |
 | `approval` | *(see below)* | Tool-call approval policy |
 | `mcp_servers` | `{}` | External MCP servers whose tools nugget's own tool loop can call (see below) |
+| `mcp_server` | `{"enabled": false, "path": "/mcp"}` | `nugget-server`'s own MCP-server exposure (see below) |
 
 ### `system_prompt` template variables
 
@@ -128,7 +129,6 @@ Git-derived variables are empty outside a git repo. Example:
 ```json
 "system_prompt": "You are a helpful assistant. Working in {{ repo_name }} on branch {{ git_branch }} ({{ cwd }})."
 ```
-| `mcp_server` | `{"enabled": false, "path": "/mcp"}` | `nugget-server`'s own MCP-server exposure (see below) |
 
 ---
 

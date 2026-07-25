@@ -5,6 +5,7 @@ typed as literal text) falls back to the raw string rather than raising, since
 `system_prompt` is free-form user text, not an authored template.
 """
 
+import functools
 import socket
 import subprocess
 from datetime import datetime, timezone
@@ -32,10 +33,9 @@ def _git(args: list[str], cwd: str) -> str | None:
     return result.stdout.strip() or None
 
 
-def build_prompt_context(cwd: str | None = None) -> dict[str, Any]:
-    """Assemble the variables available for interpolation in `system_prompt`."""
-    cwd = cwd or str(Path.cwd())
-
+@functools.lru_cache(maxsize=None)
+def _git_context(cwd: str) -> dict[str, str]:
+    """Branch/remotes/repo-name for `cwd` — stable for the life of the process."""
     branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
     remotes_raw = _git(["remote", "-v"], cwd)
     remotes = ""
@@ -51,6 +51,17 @@ def build_prompt_context(cwd: str | None = None) -> dict[str, Any]:
     if toplevel:
         repo_name = Path(toplevel).name
 
+    return {
+        "git_branch": branch or "",
+        "git_remotes": remotes,
+        "repo_name": repo_name,
+    }
+
+
+def build_prompt_context(cwd: str | None = None) -> dict[str, Any]:
+    """Assemble the variables available for interpolation in `system_prompt`."""
+    cwd = cwd or str(Path.cwd())
+
     try:
         hostname = socket.gethostname()
     except OSError:
@@ -60,9 +71,7 @@ def build_prompt_context(cwd: str | None = None) -> dict[str, Any]:
         "now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "cwd": cwd,
         "hostname": hostname,
-        "git_branch": branch or "",
-        "git_remotes": remotes,
-        "repo_name": repo_name,
+        **_git_context(cwd),
     }
 
 
@@ -76,5 +85,5 @@ def render_system_prompt(text: str, cwd: str | None = None) -> str:
     try:
         template = _jinja_env.from_string(text)
         return template.render(**build_prompt_context(cwd))
-    except jinja2.TemplateError:
+    except Exception:
         return text

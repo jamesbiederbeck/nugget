@@ -130,7 +130,7 @@ The headline new feature requested for v0.4. Specification:
 self-contained tool (`spawn_agent`) and does **not** depend on agent configs
 (NUG-006 etc.) or skills shipping first.
 
-### NUG-015 · `spawn_agent` tool — subagent MVP · P0 · L · feature
+### NUG-015 · `spawn_agent` tool — subagent MVP · P0 · L · feature · DONE
 **Roadmap #:** 14
 **Spec:** `tool_docs/SUBAGENT_SPEC.md`
 
@@ -199,7 +199,7 @@ per-call persistence each have a couple of edge cases worth isolating.
 
 ---
 
-### NUG-016 · Subagent bench tests · P1 · M · test
+### NUG-016 · Subagent bench tests · P1 · M · test · DONE
 **Roadmap #:** 14
 **Spec:** `tool_docs/SUBAGENT_SPEC.md`
 **Depends on:** NUG-015
@@ -291,7 +291,7 @@ subagent personas — either explicitly via `spawn_agent`'s `profile` arg, or
 via a default declared in the `subagent` block. No new files, no
 registration; profile bodies live entirely in `config.json`.
 
-### NUG-018 · Profile resolution in `Config` · P0 · M · feature
+### NUG-018 · Profile resolution in `Config` · P0 · M · feature · DONE
 **Roadmap #:** —
 **Design:** `planning/profiles.md`
 
@@ -336,7 +336,7 @@ of the work.
 
 ---
 
-### NUG-019 · `--profile` CLI flag (nugget + nugget-server) · P0 · S · feature
+### NUG-019 · `--profile` CLI flag (nugget + nugget-server) · P0 · S · feature · DONE
 **Roadmap #:** —
 **Design:** `planning/profiles.md`
 **Depends on:** NUG-018
@@ -374,7 +374,7 @@ follow-up, not in v0.5).
 
 ---
 
-### NUG-020 · `include_tools` / `exclude_tools` config keys · P1 · S · feature
+### NUG-020 · `include_tools` / `exclude_tools` config keys · P1 · S · feature · DONE
 **Roadmap #:** —
 **Design:** `planning/profiles.md`
 **Depends on:** NUG-018
@@ -411,7 +411,7 @@ power as static config keys.
 
 ---
 
-### NUG-021 · Subagent profile integration · P1 · M · feature
+### NUG-021 · Subagent profile integration · P1 · M · feature · DONE
 **Roadmap #:** —
 **Design:** `planning/profiles.md`
 **Depends on:** NUG-018, NUG-020
@@ -501,7 +501,7 @@ to date with the new keys, flags, and `spawn_agent` arg.
 
 ## v0.6 — Web UI parity
 
-### NUG-004 · Tool approvals in web UI · P1 · L · feature
+### NUG-004 · Tool approvals in web UI · P1 · L · feature · DONE
 **Roadmap #:** 7
 
 Today `_web_approval_config()` (`server.py:64`) silently downgrades all `ask` rules to `allow` because there's no TTY. This means the user has no way to gate `shell` calls in web mode.
@@ -540,7 +540,7 @@ A persistent status line in both CLI (`rich.live`) and web (footer bar). Fields:
 
 ---
 
-### NUG-008 · Streaming thinking blocks in web UI · P2 · S · feature
+### NUG-008 · Streaming thinking blocks in web UI · P2 · S · feature · DONE
 **Roadmap #:** 9
 
 The server already emits `thinking` SSE events (`server.py:146`). The frontend doesn't render them.
