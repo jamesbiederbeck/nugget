@@ -20,6 +20,10 @@
 - [x] `http_fetch` tool (GET/HEAD allow, mutating methods ask)
 - [x] `jq` tool (JMESPath query over JSON / `$var` payloads)
 - [x] `tasks` tool (SQLite task list, delete asks)
+- [x] Config profiles (v0.5) — `profiles` config block + resolution order (NUG-018), `--profile`/`--list-profiles` CLI flags (NUG-019), `include_tools`/`exclude_tools` config keys (NUG-020), profile-aware `spawn_agent` (NUG-021)
+- [x] Streaming thinking blocks in web UI (NUG-008)
+- [x] Subagent framework — `spawn_agent` MVP (NUG-015) + bench coverage (NUG-016)
+- [x] MCP client + server (roadmap #6) — see "MCP" section below; `NUG-023` (interactive approval channel for `ask`-gated tools called via MCP) remains open
 
 ## Backlog
 
@@ -33,15 +37,15 @@ Items ordered by priority. "Requires" lists hard blockers (✓ = already done).
 | 3 | ~~OpenRouter backend~~ ✓ | Backend ABC (#2) | — |
 | 4 | Hooks framework | session ✓, tool system ✓ | Session title, git/file hooks |
 | 5 | Session title computation | hooks (#4), backend ✓ | Status bar title field |
-| 6 | MCP support | tool system ✓, Backend Protocol ✓ | External tool ecosystem |
+| 6 | ~~MCP support~~ ✓ | tool system ✓, Backend Protocol ✓ | External tool ecosystem |
 | 7 | ~~Tool approvals in web UI~~ ✓ | approval system ✓, SSE ✓ | — |
 | 8 | Status bar — CLI + web | session title (#5) | Streaming thinking display |
-| 9 | Streaming thinking blocks | SSE ✓; status bar (#8) for CLI | — |
+| 9 | ~~Streaming thinking blocks~~ ✓ (web UI; CLI still pending #8) | SSE ✓; status bar (#8) for CLI | — |
 | 10 | Tool toggles in web UI | web server ✓ | — |
 | 11 | Jinja template sink | `render_output` (#1) ✓, `$var` binding ✓ | — |
 | 12 | Agent configs | config ✓, memory ✓, approval ✓ | Skill support, subagents |
 | 13 | Skill support | agent configs (#12) | Subagent framework |
-| 14 | **Subagent framework (`spawn_agent`)** — see `tool_docs/SUBAGENT_SPEC.md` | session ✓, backends ✓; agent configs (#12) and skills (#13) **NOT required for MVP** | Skill-based subagents |
+| 14 | ~~**Subagent framework (`spawn_agent`)**~~ ✓ MVP shipped (NUG-015, NUG-016) — see `tool_docs/SUBAGENT_SPEC.md` | session ✓, backends ✓; agent configs (#12) and skills (#13) **NOT required for MVP** | Skill-based subagents |
 | 15 | Semantic search | memory.db ✓ | — |
 | 16 | Bench: prompt-variant sweeping | bench ✓ | — |
 | 17 | Bench: flakiness report | bench ✓ | — |
@@ -120,9 +124,18 @@ Config key: `"backend": "openrouter"` + `"openrouter_api_key"` + `"openrouter_mo
 
 ## MCP (Model Context Protocol)
 
-Connect Nugget to external MCP servers so their tools are available to the model
-alongside built-in tools. MCP servers expose a standard tool-discovery and
-tool-call interface over stdio or HTTP/SSE.
+**Status: shipped** (`feat/mcp-integration`, v0.8.0). Nugget connects to external
+MCP servers so their tools are available to the model alongside built-in tools
+(`src/nugget/mcp_client.py`), and can itself expose its native tools to
+external MCP clients (`src/nugget/mcp_server.py`). MCP servers expose a
+standard tool-discovery and tool-call interface over stdio or Streamable HTTP.
+
+The implementation below reflects what shipped, with one deliberate gap: the
+MCP server only lists/serves tools whose approval statically resolves to
+`"allow"`. Tools with a dynamic (callable) approval gate or an `"ask"` gate
+are not reachable via MCP yet — there's no channel for an MCP `call_tool` to
+trigger a human approval prompt. That piece is tracked separately as
+`NUG-023` (see `planning/backlog.md`).
 
 ### Config
 

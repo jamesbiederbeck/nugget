@@ -1,10 +1,28 @@
 # Changelog
 
+## [0.8.1]
+
+### Fixed
+- `claude_history`: pin the wrapped subprocess's cwd to nugget's own process directory rather than inheriting an arbitrary caller cwd.
+
+### Docs
+- Improved tool description for `claude_history`.
+
 ## [0.8.0]
 
 ### Added
 - **MCP client (roadmap #6):** `mcp_servers` config key loads tools from external MCP servers (stdio or Streamable HTTP) into nugget's own tool-calling loop, namespaced `mcp__<server>__<tool>`. Rides the existing approval pipeline (`"ask"` by default for unvetted external tools). Never re-exposed through nugget's own MCP server.
 - **MCP server (roadmap #6):** `nugget-server` can expose the active profile's native tools to external MCP clients (Claude Code, Claude Desktop, etc.) over Streamable HTTP when `mcp_server.enabled` is set, mounted at `mcp_server.path` (default `/mcp`). Only tools whose approval statically resolves to `"allow"` are listed or callable — no interactive approval-prompt channel for MCP calls yet (tracked as `NUG-023`).
+
+## [0.7.0]
+
+### Added
+- **`claude_history` tool:** wraps the third-party `claude-history` agent protocol, exposing it to the model as a built-in tool.
+- **`nugget-subagent` skill:** installable via `npx skills add jamesbiederbeck/nugget --skill nugget-subagent`, letting Claude Code delegate tasks to a local nugget subagent.
+- Slash command completions now auto-show while typing, instead of requiring an explicit trigger.
+
+### Fixed
+- Prior-turn thinking blocks (`<|channel>thought>`) are stripped from the agentic prompt context — both session history and the current tool-calling loop — preventing repetition loops in multi-step tool-calling sequences.
 
 ## [0.6.1]
 

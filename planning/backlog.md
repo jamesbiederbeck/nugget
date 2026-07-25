@@ -105,6 +105,13 @@ Adds an `output: "template"` sink. The model binds tool outputs to named variabl
 
 **Depends on:** NUG-001 — the `render_output` dispatch path is the natural integration point for binding-only tool calls that the model wants to template over.
 
+**Coordination note (added 2026-07-25):** `src/nugget/prompt_context.py` landed a second, independent Jinja2 environment (`render_system_prompt`) for interpolating `{{ cwd }}`/`{{ git_branch }}`/etc. into the user-authored `system_prompt` config value. The two environments should **not** share config or a template cache — they sit on opposite sides of a trust boundary:
+
+- `prompt_context.py`'s environment renders **user-authored** config text. It uses plain `jinja2.Undefined` (missing vars render as `""`) and swallows all exceptions, falling back to the raw string — appropriate because `system_prompt` is free-form text that may contain incidental `{{`/`}}` and must never break prompt assembly.
+- NUG-005's environment renders the **model's own output** as a template. This is the untrusted side: an adversarial or jailbroken model could author a template designed to probe the bindings dict or exploit Jinja2's expression evaluation (SSTI-style). Use `jinja2.sandbox.SandboxedEnvironment`, not the plain `Environment` `prompt_context.py` uses, and keep `StrictUndefined` (per the existing acceptance criteria) rather than adopting `prompt_context.py`'s silent-fallback behavior — a template-sink error should surface to the model as a correctable mistake, not be silently swallowed.
+
+If a shared helper ever makes sense (e.g. a common "render Jinja with a byte-size cap" utility), factor it out explicitly — do not have NUG-005 import `prompt_context._jinja_env` directly, since that environment's undefined/exception-handling policy is wrong for model-authored input.
+
 ---
 
 ### NUG-010 · Doc-drift cleanup · P1 · S · docs · DONE
