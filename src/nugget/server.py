@@ -60,7 +60,8 @@ def _get_backend():
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _build_system_prompt(cfg: Config) -> str:
-    parts = [cfg.system_prompt]
+    from .prompt_context import render_system_prompt
+    parts = [render_system_prompt(cfg.system_prompt)]
     if cfg.append_datetime:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         parts.append(f"Current date and time: {now}")

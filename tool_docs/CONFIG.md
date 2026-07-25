@@ -98,7 +98,7 @@ Created automatically on first run with defaults.
 | `show_tool_calls` | `true` | Print tool call/response summaries |
 | `show_tool_responses` | `false` | Print full tool response JSON |
 | `show_system_prompt` | `false` | Print the assembled system prompt at start of session |
-| `system_prompt` | `"You are a helpful assistant."` | Base system prompt (pinned memories are appended) |
+| `system_prompt` | `"You are a helpful assistant."` | Base system prompt (pinned memories are appended). Supports Jinja2 `{{ var }}` interpolation — see below. |
 | `append_datetime` | `true` | Append current date/time to the system prompt |
 | `sessions_dir` | `~/.local/share/nugget/sessions` | Where session JSON files are saved |
 | `debug` | `false` | Enable debug logging |
@@ -107,6 +107,27 @@ Created automatically on first run with defaults.
 | `openrouter_model` | `"openai/gpt-4o-mini"` | Default model for the openrouter backend |
 | `approval` | *(see below)* | Tool-call approval policy |
 | `mcp_servers` | `{}` | External MCP servers whose tools nugget's own tool loop can call (see below) |
+
+### `system_prompt` template variables
+
+`system_prompt` is rendered as a Jinja2 template before use. Unknown variables render as empty
+string rather than erroring, and a prompt that isn't valid Jinja (e.g. containing stray `{{`)
+falls back to the raw text unchanged. Available variables:
+
+| Variable | Example |
+| --- | --- |
+| `now` | `2026-07-22 14:03 UTC` |
+| `cwd` | `/home/user/projects/myrepo` |
+| `hostname` | `workstation` |
+| `git_branch` | `develop` |
+| `git_remotes` | `origin, upstream` |
+| `repo_name` | `gemma` |
+
+Git-derived variables are empty outside a git repo. Example:
+
+```json
+"system_prompt": "You are a helpful assistant. Working in {{ repo_name }} on branch {{ git_branch }} ({{ cwd }})."
+```
 | `mcp_server` | `{"enabled": false, "path": "/mcp"}` | `nugget-server`'s own MCP-server exposure (see below) |
 
 ---
