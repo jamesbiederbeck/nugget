@@ -369,3 +369,7 @@ def main() -> None:
 
     print(f"nugget server → http://{args.host}:{args.port}")
     uvicorn.run("nugget.server:app", host=args.host, port=args.port, reload=False)
+
+
+if __name__ == "__main__":
+    main()
