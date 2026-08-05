@@ -4,6 +4,7 @@ text-generation-webui backend using /v1/completions with Gemma 4 prompt format.
 
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -209,6 +210,24 @@ def _render_assistant_turn(msg: dict) -> str:
     return "".join(parts)
 
 
+@lru_cache(maxsize=8)
+def _render_system_content(
+    system_prompt: str,
+    tool_declarations: tuple[str, ...],
+    thinking_effort: int,
+    has_memory: bool,
+    has_tools: bool,
+) -> str:
+    tmpl = _jinja_env.get_template("system.j2")
+    return tmpl.render(
+        system_prompt=system_prompt,
+        tool_declarations=list(tool_declarations),
+        thinking_effort=thinking_effort,
+        has_memory=has_memory,
+        has_tools=has_tools,
+    )
+
+
 def build_prompt(
     messages: list[dict],
     tool_schemas: list[dict],
@@ -218,14 +237,13 @@ def build_prompt(
     has_memory = any(
         s.get("function", {}).get("name") == "memory" for s in tool_schemas
     )
-    tool_declarations = [format_tool_declaration(s) for s in tool_schemas]
-    tmpl = _jinja_env.get_template("system.j2")
-    system_content = tmpl.render(
-        system_prompt=system_prompt,
-        tool_declarations=tool_declarations,
-        thinking_effort=thinking_effort,
-        has_memory=has_memory,
-        has_tools=bool(tool_schemas),
+    tool_declarations = tuple(format_tool_declaration(s) for s in tool_schemas)
+    system_content = _render_system_content(
+        system_prompt,
+        tool_declarations,
+        thinking_effort,
+        has_memory,
+        bool(tool_schemas),
     )
     parts = [system_content]
     for msg in messages:
