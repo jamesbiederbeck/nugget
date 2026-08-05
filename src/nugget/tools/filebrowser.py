@@ -15,7 +15,7 @@ SCHEMA = {
             "unambiguous string substitution and reports how many occurrences it "
             "changed, instead of a regex that may silently match too much, too "
             "little, or nothing. "
-            "Operations: 'cwd', 'ls', 'cat', 'read_lines', 'stat', 'glob', "
+            "Operations: 'cwd', 'ls' (alias: 'list'), 'cat', 'read_lines', 'stat', 'glob', "
             "'write', 'append', 'replace', 'mkdir', 'move', 'backup', 'restore_backup'. "
             "An existing file must be read with 'cat' or 'read_lines' before it can be "
             "modified with 'write', 'append', or 'replace' — this catches edits made "
@@ -30,7 +30,7 @@ SCHEMA = {
                 "operation": {
                     "type": "string",
                     "description": (
-                        "One of: 'cwd', 'ls', 'cat', 'read_lines', 'stat', 'glob', "
+                        "One of: 'cwd', 'ls' (alias: 'list'), 'cat', 'read_lines', 'stat', 'glob', "
                         "'write', 'append', 'replace', 'mkdir', 'move', 'backup', 'restore_backup'"
                     ),
                 },
@@ -94,7 +94,10 @@ _read_cache: dict[str, float] = {}
 
 
 def APPROVAL(args: dict) -> str:
-    return "allow" if args.get("operation", "") in _READ_OPS else "ask"
+    op = args.get("operation", "")
+    if op == "list":
+        op = "ls"
+    return "allow" if op in _READ_OPS else "ask"
 
 
 def _mark_read(target: Path) -> None:
@@ -125,6 +128,8 @@ def _check_read_guard(target: Path) -> dict | None:
 
 def execute(args: dict) -> dict:
     op = args.get("operation", "").strip().lower()
+    if op == "list":
+        op = "ls"
     path_arg = args.get("path")
 
     if op == "cwd":
