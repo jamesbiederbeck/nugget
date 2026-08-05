@@ -510,7 +510,8 @@ class TextgenBackend(Backend):
                 result_for_context = {"status": "error", "reason": sink_error}
                 tool_exchanges.append({"name": name, "args": args, "result": result_for_context})
                 response_token = format_tool_response_token(name, result_for_context)
-                prompt = prompt + accumulated + "<|tool_response>" + response_token
+                _, accumulated_no_thinking = parse_thinking(accumulated)
+                prompt = prompt + accumulated_no_thinking + "<|tool_response>" + response_token
                 accumulated = ""
                 continue
 
@@ -521,7 +522,8 @@ class TextgenBackend(Backend):
                 result_for_context = {"status": "error", "reason": sub_error}
                 tool_exchanges.append({"name": name, "args": args, "result": result_for_context})
                 response_token = format_tool_response_token(name, result_for_context)
-                prompt = prompt + accumulated + "<|tool_response>" + response_token
+                _, accumulated_no_thinking = parse_thinking(accumulated)
+                prompt = prompt + accumulated_no_thinking + "<|tool_response>" + response_token
                 accumulated = ""
                 continue
 
