@@ -8,7 +8,7 @@ the textgen backend and render_output can import them without side effects.
 import json
 import re
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import jmespath
 
@@ -40,8 +40,12 @@ def _is_var_ref(value: object) -> str | None:
     return parsed[0] if parsed else None
 
 
-def _compile_path(path: str) -> tuple[object | None, str | None]:
-    """Compile a JMESPath expression. Returns (compiled, error_reason)."""
+def _compile_path(path: str) -> tuple[Any | None, str | None]:
+    """Compile a JMESPath expression. Returns (compiled, error_reason).
+
+    The compiled expression is `Any` because jmespath is untyped; exactly one
+    of the two elements is non-None on any given return.
+    """
     try:
         return jmespath.compile(path), None
     except jmespath.exceptions.ParseError as e:
@@ -66,8 +70,8 @@ def _substitute_vars(args: dict, bindings: dict) -> tuple[dict, str | None]:
         value = bindings[name]
         if path is not None:
             compiled, perr = _compile_path(path)
-            if perr is not None:
-                return args, perr
+            if compiled is None:
+                return args, perr or f"invalid jmespath {path!r}"
             value = compiled.search(value)
             if value is None:
                 return args, f"${name}.{path} not present"
@@ -99,9 +103,9 @@ def _validate_sink(sink: str) -> str | None:
         return None
     parsed = _parse_var_ref(sink)
     if parsed is not None:
-        _, path = parsed
-        if path is not None:
-            _, perr = _compile_path(path)
+        _, var_path = parsed
+        if var_path is not None:
+            _, perr = _compile_path(var_path)
             return perr
         return None
     return f"unknown sink: {sink!r}"
@@ -119,10 +123,15 @@ def _route_tool_result(
     check_file_sink: Callable[[Path, Path, dict], tuple[str, str]] | None,
     sink_approval_prompt: Callable[[str, Path], bool] | None,
     approval_config: dict | None,
-) -> object:
+) -> Any:
     """
     Resolve a per-call sink and produce the result value that will be
     serialised into the model's <|tool_response> token.
+
+    Returns `Any` rather than `dict` because the sink=None and unchecked
+    `file:` branches pass the tool's own result straight through, and the
+    tool executor's return type is not statically known. Every other branch
+    returns a status stub.
 
     sink=None         → inline; fires on_tool_response; returns the full result.
     sink="display"    → fires on_tool_routed; returns a status stub.

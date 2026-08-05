@@ -42,7 +42,11 @@ def setup_prompt(command_descriptions: dict[str, str], history_path) -> None:
         history=FileHistory(str(hist)),
         completer=ConditionalCompleter(
             _slash_completer,
-            Condition(lambda: _pt_session.app.current_buffer.text.startswith("/")),
+            # The lambda closes over `_pt_session` while it is still being
+            # constructed; it is only ever called after this assignment
+            # completes, so the global is non-None by then. mypy cannot see
+            # that ordering — restructuring this is tracked separately.
+            Condition(lambda: _pt_session.app.current_buffer.text.startswith("/")),  # type: ignore[union-attr]
         ),
         complete_while_typing=True,
     )

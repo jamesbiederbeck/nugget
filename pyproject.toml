@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-mock", "mypy>=1.10"]
+dev = ["pytest>=8.0", "pytest-mock", "mypy>=1.10", "types-requests"]
 web = ["fastapi>=0.111", "uvicorn[standard]>=0.29"]
 mcp = ["mcp>=1.2"]
 
@@ -29,6 +29,17 @@ nugget = ["templates/*.j2", "web/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+
+[tool.mypy]
+files = ["src/nugget"]
+python_version = "3.11"
+
+# jmespath ships no type information and has no stubs on PyPI. Without this,
+# every import of it errors and anything derived from it degrades to `object`,
+# which makes downstream call sites unverifiable rather than merely unchecked.
+[[tool.mypy.overrides]]
+module = ["jmespath.*"]
+ignore_missing_imports = true
 
 [project.scripts]
 nugget = "nugget.__main__:main"
