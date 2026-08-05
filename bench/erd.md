@@ -1,90 +1,63 @@
 # Bench Database — Entity Relationship Diagram
 
+Keys only — every column (including the non-key ones omitted here for
+legibility) is documented in [Notes](#notes) below.
+
 ```mermaid
 erDiagram
     meta {
-        text key   PK
-        text value
+        text key PK
     }
-
     system_prompt {
-        int  id         PK
-        text hash       UK
-        text text
-        text created_at
+        int  id   PK
+        text hash UK
     }
-
     user_prompt {
-        int  id         PK
-        text hash       UK
-        text text
-        text created_at
+        int  id   PK
+        text hash UK
     }
-
     model {
-        int  id         PK
-        text name       UK
-        text created_at
+        int  id   PK
+        text name UK
     }
-
     run {
-        int  id         PK
-        text name
-        text notes
-        text created_at
+        int id PK
     }
-
     response {
-        int  id                PK
-        text hash
-        text text
-        text thinking
-        text tool_calls
-        text stop_strings
-        text finish_reason
-        real temperature
-        int  prompt_tokens
-        int  completion_tokens
-        int  latency_ms
-        int  model_id          FK
-        int  system_prompt_id  FK
-        int  user_prompt_id    FK
-        int  run_id            FK
-        text created_at
+        int id               PK
+        int model_id         FK
+        int system_prompt_id FK
+        int user_prompt_id   FK
+        int run_id           FK
     }
-
     test_case {
-        int  id               PK
-        text name             UK
-        text constraint_type
-        text constraint_value
-        text constraint_hash
-        text target
-        text notes
+        int  id   PK
+        text name UK
     }
-
     test_result {
-        int  id               PK
-        int  passed
-        text extracted_value
-        int  system_prompt_id FK
-        int  user_prompt_id   FK
-        int  response_id      FK
-        int  test_case_id     FK
-        int  run_id           FK
-        text created_at
+        int id               PK
+        int system_prompt_id FK
+        int user_prompt_id   FK
+        int response_id      FK
+        int test_case_id     FK
+        int run_id           FK
     }
 
-    system_prompt ||--o{ response    : ""
-    user_prompt   ||--o{ response    : ""
-    model         ||--o{ response    : ""
-    run           |o--o{ response    : "null = ad-hoc"
-    response      ||--o{ test_result : "cascade delete"
-    test_case     ||--o{ test_result : ""
-    system_prompt ||--o{ test_result : "denormalised"
-    user_prompt   ||--o{ test_result : "denormalised"
-    run           |o--o{ test_result : "null = ad-hoc"
+    system_prompt ||--o{ response    : has
+    user_prompt   ||--o{ response    : has
+    model         ||--o{ response    : produced
+    run           |o--o{ response    : groups
+    response      ||--o{ test_result : evaluated_by
+    test_case     ||--o{ test_result : checks
+    system_prompt ||--o{ test_result : has
+    user_prompt   ||--o{ test_result : has
+    run           |o--o{ test_result : groups
 ```
+
+`run` relationships are optional (`run_id` is nullable — see
+[Notes](#notes)); `test_result`'s `system_prompt`/`user_prompt` links are
+denormalised copies of the parent `response` row's links, not independent
+associations.
 
 ## Target path syntax
 

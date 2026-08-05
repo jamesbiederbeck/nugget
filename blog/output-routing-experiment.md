@@ -4,7 +4,7 @@ When you're running a tool-calling LLM locally, you run into a problem that clou
 
 With a cloud assistant, the model calls a tool, gets a result, and the platform handles display. With a local model you're building the whole stack yourself, so you have to answer the question explicitly: does the tool result go back into the model's context? Get printed to the terminal? Written to a file? Piped into another tool?
 
-For [Nugget](https://github.com/victorbiederbeck/nugget) — a CLI chat interface for locally-hosted models — I implemented what I called *output routing*: a convention where the model includes an `output` argument on any tool call to declare where the result should go.
+For [Nugget](https://github.com/jamesbiederbeck/nugget) — a CLI chat interface for locally-hosted models — I implemented what I called *output routing*: a convention where the model includes an `output` argument on any tool call to declare where the result should go.
 
 ```
 output: "display"        → show the result to the user, don't add it to context

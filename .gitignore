@@ -33,6 +33,7 @@ bench/bench.db
 
 # Scratch / local sandbox
 foo.txt
+foo.md
 sandbox/
 shell_context_test.txt
 
