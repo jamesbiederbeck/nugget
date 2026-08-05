@@ -25,5 +25,10 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get install -y ripgrep
 
+      # server.py and the mcp_* modules import optional deps, so the extras
+      # must be present or mypy reports them as missing rather than checking them.
+      - name: Type check
+        run: uv run --python ${{ matrix.python-version }} --extra dev --extra web --extra mcp mypy
+
       - name: Run tests
         run: uv run --python ${{ matrix.python-version }} --extra dev pytest
