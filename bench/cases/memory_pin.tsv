@@ -1,0 +1,22 @@
+id	prompt_id	prompt	tools	constraint_type	constraint_value	target	notes
+pin_identity.tool	pin_identity	Remember that I maintain nugget and I want terse answers with no preamble.	memory	regex	^memory$	tool_call[0].name	identity + working style — should store
+pin_identity.op	pin_identity	Remember that I maintain nugget and I want terse answers with no preamble.	memory	regex	^store$	tool_call[0].args.operation	identity + working style — should store
+pin_identity.pin	pin_identity	Remember that I maintain nugget and I want terse answers with no preamble.	memory	regex	^(True|true)$	tool_call[0].args.pin	would change the first response in any conversation — should pin
+pin_workflow.tool	pin_workflow	From now on always use uv instead of pip in this project. Remember that.	memory	regex	^memory$	tool_call[0].name	standing instruction — should store
+pin_workflow.op	pin_workflow	From now on always use uv instead of pip in this project. Remember that.	memory	regex	^store$	tool_call[0].args.operation	standing instruction — should store
+pin_workflow.pin	pin_workflow	From now on always use uv instead of pip in this project. Remember that.	memory	regex	^(True|true)$	tool_call[0].args.pin	applies to every session regardless of topic — should pin
+pin_explicit.tool	pin_explicit	Remember that I am allergic to shellfish, and keep it in front of you in every conversation.	memory	regex	^memory$	tool_call[0].name	user explicitly asks for always-present — should store
+pin_explicit.pin	pin_explicit	Remember that I am allergic to shellfish, and keep it in front of you in every conversation.	memory	regex	^(True|true)$	tool_call[0].args.pin	explicit always-present request — should pin
+nopin_project_detail.tool	nopin_project_detail	Remember that the bench database lives at bench/bench.db.	memory	regex	^memory$	tool_call[0].name	durable but topical — should store
+nopin_project_detail.op	nopin_project_detail	Remember that the bench database lives at bench/bench.db.	memory	regex	^store$	tool_call[0].args.operation	durable but topical — should store
+nopin_project_detail.pin	nopin_project_detail	Remember that the bench database lives at bench/bench.db.	memory	absent		tool_call[0].args.pin	only matters when the bench comes up — should not pin (note: an explicit pin=false also fails this, see bench/README.md)
+nopin_topical.tool	nopin_topical	Remember that wallabag article 183 is the one about output routing.	memory	regex	^memory$	tool_call[0].name	single-topic fact — should store
+nopin_topical.pin	nopin_topical	Remember that wallabag article 183 is the one about output routing.	memory	absent		tool_call[0].args.pin	single-topic fact — should not pin
+nopin_ci_var.tool	nopin_ci_var	Remember that the CI runner image is configured through the CI_RUNNER_IMAGE variable.	memory	regex	^memory$	tool_call[0].name	narrow config detail — should store
+nopin_ci_var.pin	nopin_ci_var	Remember that the CI runner image is configured through the CI_RUNNER_IMAGE variable.	memory	absent		tool_call[0].args.pin	narrow config detail — should not pin
+unpin_explicit.tool	unpin_explicit	Stop keeping my editor preference in front of you every session. The memory key is editor-preference.	memory	regex	^memory$	tool_call[0].name	explicit unpin request
+unpin_explicit.op	unpin_explicit	Stop keeping my editor preference in front of you every session. The memory key is editor-preference.	memory	regex	^unpin$	tool_call[0].args.operation	should use unpin, not store or delete
+unpin_explicit.key	unpin_explicit	Stop keeping my editor preference in front of you every session. The memory key is editor-preference.	memory	regex	editor	tool_call[0].args.key	should target the named key
+recall_not_store.tool	recall_not_store	What do you already know about how I like my tests written?	memory	regex	^memory$	tool_call[0].name	a question about stored knowledge is a read
+recall_not_store.op	recall_not_store	What do you already know about how I like my tests written?	memory	regex	^(recall|search|list)$	tool_call[0].args.operation	should read, not store — nothing new was learned
+recall_not_store.pin	recall_not_store	What do you already know about how I like my tests written?	memory	absent		tool_call[0].args.pin	a read has no reason to touch pin state

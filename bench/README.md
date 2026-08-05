@@ -47,6 +47,18 @@ a prompt and are evaluated together against that one response. Query
 `bench.db` directly (or write a script against `db.py`) to compare pass
 rates across runs, models, or prompt-template revisions.
 
+### Asserting that an optional arg was *not* set
+
+`absent` passes only when the target path resolves to nothing, and
+`regex` fails outright on a missing value — so neither constraint can
+express "omitted **or** explicitly false". Cases that assert a model
+left an optional boolean alone (`memory_pin.tsv`'s `nopin_*.pin` rows,
+`sinks.tsv`'s `no_sink_*.output` rows) use `absent`, which is the shape
+the prompt actually asks for. A model that passes an explicit
+`pin=false` or `output=null` is arguably also correct but will score as
+a failure. If that starts showing up in results, read it as a signal
+about the model's arg-emission habits rather than a real regression.
+
 ## Not just Gemma
 
 Nothing about the case format or the schema is Gemma-specific. A case is
