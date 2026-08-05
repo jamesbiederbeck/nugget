@@ -1,4 +1,7 @@
-FROM git.hiddencove.xyz/victor/dind_runner:latest
+# Base image is supplied by CI (vars.AGENT_BASE_IMAGE); it must provide a
+# Docker-in-Docker capable runner with Python available.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 

@@ -1,6 +1,14 @@
 name: Build Images
 run-name: ${{ gitea.actor }} built images
 
+# Registry-agnostic: set these repo/org variables in your Gitea instance.
+#   vars.REGISTRY          — container registry host (e.g. git.example.com)
+#   vars.CI_RUNNER_IMAGE   — dind-capable runner image for the job container
+#   vars.AGENT_BASE_IMAGE  — base image for Dockerfile.agent
+#   vars.AGENT_IMAGE       — full name for the published nugget-agent image
+#   vars.GOTIFY_URL        — optional; build notifications are skipped if unset
+# Secrets: GITEAPASSWORD (registry login), GOTIFY_TOKEN (if GOTIFY_URL is set).
+
 on:
   push:
     paths-ignore:
@@ -13,7 +21,7 @@ jobs:
   Build-Images:
     runs-on: ubuntu-latest
     container:
-      image: git.hiddencove.xyz/victor/dind_runner:latest
+      image: ${{ vars.CI_RUNNER_IMAGE }}
       volumes:
         - toolcache:/toolcache
     env:
@@ -23,20 +31,19 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v4
 
-      - name: Login to Gitea registry
+      - name: Login to container registry
         uses: docker/login-action@v3
         with:
-          registry: git.hiddencove.xyz
+          registry: ${{ vars.REGISTRY }}
           username: ${{ vars.GITEAUSERNAME }}
           password: ${{ secrets.GITEAPASSWORD }}
 
       - name: Notify build start
-        uses: https://git.hiddencove.xyz/actions/gotify@main
-        with:
-          url: "https://gotify.hiddencove.xyz"
-          token: "${{ secrets.GOTIFY_TOKEN }}"
-          title: "Build Started — ${{ gitea.repository }}"
-          message: "${{ gitea.ref }} @ ${{ gitea.sha }}"
+        if: vars.GOTIFY_URL != ''
+        run: |
+          curl -sf -X POST "${{ vars.GOTIFY_URL }}/message?token=${{ secrets.GOTIFY_TOKEN }}" \
+            -F "title=Build Started — ${{ gitea.repository }}" \
+            -F "message=${{ gitea.ref }} @ ${{ gitea.sha }}"
 
       # --- nugget (regular) ---
 
@@ -44,7 +51,7 @@ jobs:
         id: meta-nugget
         uses: docker/metadata-action@v5
         with:
-          images: git.hiddencove.xyz/${{ gitea.repository }}
+          images: ${{ vars.REGISTRY }}/${{ gitea.repository }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -60,13 +67,13 @@ jobs:
           tags: ${{ steps.meta-nugget.outputs.tags }}
           push: true
 
-      # --- nugget-agent (dind_runner base) ---
+      # --- nugget-agent (dind base) ---
 
       - name: Docker Meta (nugget-agent)
         id: meta-agent
         uses: docker/metadata-action@v5
         with:
-          images: git.hiddencove.xyz/victor/nugget-agent
+          images: ${{ vars.AGENT_IMAGE }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -79,13 +86,14 @@ jobs:
         with:
           context: .
           file: Dockerfile.agent
+          build-args: |
+            BASE_IMAGE=${{ vars.AGENT_BASE_IMAGE }}
           tags: ${{ steps.meta-agent.outputs.tags }}
           push: true
 
       - name: Notify build done
-        uses: https://git.hiddencove.xyz/actions/gotify@main
-        with:
-          url: "https://gotify.hiddencove.xyz"
-          token: "${{ secrets.GOTIFY_TOKEN }}"
-          title: "Build Finished — ${{ gitea.repository }}"
-          message: "${{ gitea.ref }} @ ${{ gitea.sha }} — status: ${{ job.status }}"
+        if: always() && vars.GOTIFY_URL != ''
+        run: |
+          curl -sf -X POST "${{ vars.GOTIFY_URL }}/message?token=${{ secrets.GOTIFY_TOKEN }}" \
+            -F "title=Build Finished — ${{ gitea.repository }}" \
+            -F "message=${{ gitea.ref }} @ ${{ gitea.sha }} — status: ${{ job.status }}"
