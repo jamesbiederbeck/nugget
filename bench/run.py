@@ -16,6 +16,7 @@ import csv
 import fnmatch
 import json
 import re
+import subprocess
 import sys
 import time
 from itertools import groupby
@@ -43,6 +44,46 @@ _BENCH_APPROVAL = {
 # first tool call is captured. tool_calls_seen is already populated at raise time.
 class _StopAfterFirstCall(Exception):
     pass
+
+
+# ── GPU thermal gate ─────────────────────────────────────────────────────────
+
+# Set once the first probe determines nvidia-smi is unusable, so a run on a
+# machine without it warns a single time instead of on every prompt group.
+_gpu_unavailable = False
+
+
+def _gpu_temp() -> int | None:
+    """Hottest GPU temperature in Celsius, or None if nvidia-smi is unusable."""
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    temps = [int(t) for t in proc.stdout.split() if t.strip().isdigit()]
+    return max(temps) if temps else None
+
+
+def _wait_for_cool(limit: int, interval: int) -> None:
+    """Block until the GPU is at or below `limit` °C. No-op when limit <= 0."""
+    global _gpu_unavailable
+    if limit <= 0 or _gpu_unavailable:
+        return
+    temp = _gpu_temp()
+    if temp is None:
+        _gpu_unavailable = True
+        print(f"{DIM}  (no GPU temperature available — thermal gate disabled){RESET}")
+        return
+    while temp is not None and temp > limit:
+        print(f"{DIM}  GPU at {temp}°C > {limit}°C — sleeping {interval}s to cool…{RESET}")
+        time.sleep(interval)
+        temp = _gpu_temp()
 
 
 # ── TSV loading ──────────────────────────────────────────────────────────────
@@ -365,6 +406,13 @@ def main() -> None:
                              "(no real I/O; captures model intent only)")
     parser.add_argument("--verbose", action="store_true",
                         help="Print model response text per group")
+    parser.add_argument("--gpu-temp-limit", type=int, default=65, metavar="C",
+                        help="Pause before each prompt group while the GPU is above "
+                             "this temperature in Celsius (default: 65). Use 0 to "
+                             "disable; automatically disabled if nvidia-smi is absent.")
+    parser.add_argument("--gpu-poll-interval", type=int, default=30, metavar="SEC",
+                        help="Seconds to sleep between GPU temperature checks "
+                             "while waiting to cool (default: 30)")
     args = parser.parse_args()
 
     cases_path = Path(args.cases)
@@ -421,6 +469,7 @@ def main() -> None:
         system_prompt_id = bench_db.upsert_system_prompt(conn, system_prompt)
 
         if args.repeat == 1:
+            _wait_for_cool(args.gpu_temp_limit, args.gpu_poll_interval)
             gr = run_group(group, backend, cfg, system_prompt, mock_tools=args.mock_tools)
             _persist(conn, gr, case_name_to_id, system_prompt_id, model_id, cfg, run_id)
             for r in gr["results"]:
@@ -430,10 +479,12 @@ def main() -> None:
             if args.verbose:
                 print(f"  {DIM}response: {gr['text'][:120]!r}{RESET}")
         else:
-            all_grs = [
-                run_group(group, backend, cfg, system_prompt, mock_tools=args.mock_tools)
-                for _ in range(args.repeat)
-            ]
+            all_grs = []
+            for _ in range(args.repeat):
+                _wait_for_cool(args.gpu_temp_limit, args.gpu_poll_interval)
+                all_grs.append(
+                    run_group(group, backend, cfg, system_prompt, mock_tools=args.mock_tools)
+                )
             for gr in all_grs:
                 _persist(conn, gr, case_name_to_id, system_prompt_id, model_id, cfg, run_id)
 
