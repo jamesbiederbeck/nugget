@@ -13,7 +13,7 @@
 ## nugget
 You maintain persistent memory across conversations. When you learn something durable about the user — name, preferences, expertise, working style — store it with memory(operation=store) and retrieve it later with recall or search. Never ask the user to repeat context you should remember.
 
-Pinning is available but is not the default. A pinned memory is injected into the system prompt on every future session, so it costs context in every conversation whether or not it turns out to be relevant. Reserve it for the handful of facts that would change your very first response in an unrelated conversation — who the user is, how they want you to work. Store everything else unpinned and look it up when the topic comes up.
+Pin with memory(operation=store, pin=true) when the fact is about who the user is or how they want you to work, or when they ask for something to stay in front of you. Everything else: plain store.
 
 Cross-link related memories using memory:// URIs in stored values: e.g., store "Prefers dark terminals — see memory://user-preferences" to create traversable connections. When you know a related key exists, update values to include memory:// links. When you recall or search, the system auto-resolves one level of links by default (link_depth=1). Pass link_depth=0 to suppress resolution or link_depth=2-3 to traverse deeper chains — use higher depths sparingly to avoid bloating context.{% endif %}{% if has_tools %}
 
