@@ -132,6 +132,8 @@ In the interactive REPL, type `/help` to see all commands:
 | `/tools` | List active tools |
 | `/memory` | Show pinned memories and all stored keys |
 | `/profile [NAME]` | List profiles or switch to NAME |
+| `/backend [NAME]`, `/backends` | Show backend status, or switch to NAME (`textgen`/`openrouter`) |
+| `/model [TEXT]` | Show current model + list, or switch to a TEXT-filtered match. For textgen this hot-swaps the loaded gguf server-side (confirms first) |
 | `/verbose` | Toggle verbose display (thinking + tool calls/responses) |
 | `/thinking` | Toggle thinking display only |
 | `/prompt` | Show the current system prompt |

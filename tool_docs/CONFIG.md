@@ -87,8 +87,8 @@ Created automatically on first run with defaults.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `backend` | `"textgen"` | `"textgen"` or `"openrouter"` |
-| `api_url` | `"http://127.0.0.1:5000"` | Base URL of the upstream model server (textgen backend) |
-| `model` | `"gemma-4-E4B-it-uncensored-Q4_K_M.gguf"` | Model filename (textgen) or model ID (openrouter) |
+| `api_url` | `"http://127.0.0.1:5000"` | Base URL of the upstream model server. Used only by the **textgen** backend — does not affect openrouter |
+| `model` | `"gemma-4-E4B-it-uncensored-Q4_K_M.gguf"` | Model filename for the **textgen** backend only. For openrouter, use `openrouter_model` |
 | `temperature` | `0.7` | Sampling temperature |
 | `top_p` | `0.95` | Nucleus sampling cutoff |
 | `top_k` | `20` | Top-K sampling |
@@ -105,6 +105,7 @@ Created automatically on first run with defaults.
 | `shell_output_max_chars` | `1000` | Max chars of `!<command>` output added to conversation context (terminal always shows the full output) |
 | `openrouter_api_key` | `""` | OpenRouter API key (or set `OPENROUTER_API_KEY` env var) |
 | `openrouter_model` | `"openai/gpt-4o-mini"` | Default model for the openrouter backend |
+| `openrouter_base_url` | `"https://openrouter.ai/api"` | Base URL for the openrouter backend. Independent of `api_url` — set this to point openrouter-mode at a local OpenAI-compatible proxy |
 | `approval` | *(see below)* | Tool-call approval policy |
 | `mcp_servers` | `{}` | External MCP servers whose tools nugget's own tool loop can call (see below) |
 | `mcp_server` | `{"enabled": false, "path": "/mcp"}` | `nugget-server`'s own MCP-server exposure (see below) |

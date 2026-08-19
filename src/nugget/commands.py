@@ -2,11 +2,13 @@
 Interactive /command handler for the nugget CLI.
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from . import display
+from .backends import Backend
 from .config import Config
 from .session import Session
 from .tools.memory import execute as _memory_execute, get_pinned
@@ -27,6 +29,8 @@ COMMANDS: list[tuple[str, list[str], str]] = [
     ("/verbose",  [],        "toggle verbose display (thinking + tool calls/responses)"),
     ("/thinking", [],        "toggle thinking display only"),
     ("/profile",  [],        "[NAME]  list profiles or switch to NAME"),
+    ("/backend",  ["/backends"], "[NAME]  show backend status or switch to NAME"),
+    ("/model",    [],        "[TEXT]  show/list models or switch to a TEXT-filtered match"),
 ]
 
 ALL_COMMAND_NAMES: list[str] = [
@@ -49,6 +53,50 @@ def _build_help() -> str:
 
 
 _HELP = _build_help()
+
+
+def _print_backend_status(cfg: Config) -> None:
+    active = cfg._data.get("backend", "textgen")
+    profiles_for: dict[str, list[str]] = {}
+    for pname, pdata in cfg._profiles.items():
+        b = pdata.get("backend")
+        if b:
+            profiles_for.setdefault(b, []).append(pname)
+
+    for name in Backend.PROVIDERS:
+        marker = f" {display.CYAN}*{display.RESET}" if name == active else ""
+        if name == "textgen":
+            usable, note = True, cfg._data.get("api_url", "")
+        else:
+            raw_url = (cfg._data.get("openrouter_base_url") or "https://openrouter.ai/api").rstrip("/")
+            is_local = raw_url.startswith("http://localhost") or raw_url.startswith("http://127.")
+            has_key = bool(cfg._data.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY"))
+            usable = has_key or is_local
+            note = raw_url if usable else "no API key set"
+        status = f"{display.GREEN}usable{display.RESET}" if usable else f"{display.RED}not usable{display.RESET}"
+        print(f"  {name}{marker}  {status}  {display.DIM}{note}{display.RESET}")
+        for pname in sorted(profiles_for.get(name, [])):
+            display.print_dim(f"      profile: {pname}")
+
+
+def _print_model_status(backend_name: str, live) -> None:
+    try:
+        current = live.current_model()
+    except Exception as e:
+        display.print_error(f"Could not query current model: {e}")
+        return
+    display.print_dim(f"Current model ({backend_name}): {current}")
+    try:
+        models = live.list_models()
+    except Exception as e:
+        display.print_dim(f"(model list unavailable: {e})")
+        return
+    if backend_name == "textgen":
+        for m in models:
+            marker = f" {display.CYAN}*{display.RESET}" if m == current else ""
+            print(f"  {m}{marker}")
+    else:
+        display.print_dim(f"{len(models)} models available — use /model TEXT to filter")
 
 
 @dataclass
@@ -168,7 +216,11 @@ def dispatch(raw: str, ctx: CommandContext) -> str | None:
                 display.print_dim("No profiles defined.")
             else:
                 for p in profiles:
-                    marker = f" {display.CYAN}*{display.RESET}" if p == ctx.cfg._active_profile else ""
+                    if p == ctx.cfg._active_profile:
+                        suffix = " (modified)" if ctx.cfg._profile_modified else ""
+                        marker = f" {display.CYAN}*{suffix}{display.RESET}"
+                    else:
+                        marker = ""
                     display.print_dim(f"  {p}{marker}")
         else:
             try:
@@ -191,6 +243,68 @@ def dispatch(raw: str, ctx: CommandContext) -> str | None:
             )
             ctx.backend_cell[0] = make_backend(ctx.cfg)
             display.print_dim(f"Switched to profile: {arg}")
+
+    elif cmd in ("/backend", "/backends"):
+        if not arg:
+            _print_backend_status(ctx.cfg)
+        else:
+            name = arg.strip().lower()
+            if name not in Backend.PROVIDERS:
+                display.print_error(f"Unknown backend: {name}  (choices: {', '.join(Backend.PROVIDERS)})")
+                return None
+            from .backends import make_backend
+            old_value = ctx.cfg._data.get("backend")
+            ctx.cfg._data["backend"] = name
+            try:
+                new_backend = make_backend(ctx.cfg)
+            except Exception as e:
+                ctx.cfg._data["backend"] = old_value
+                display.print_error(f"Could not switch to {name}: {e}")
+                return None
+            ctx.backend_cell[0] = new_backend
+            if ctx.cfg._active_profile is not None:
+                ctx.cfg._profile_modified = True
+            display.print_dim(f"Switched to backend: {name}")
+
+    elif cmd == "/model":
+        backend_name = ctx.cfg._data.get("backend", "textgen")
+        live = ctx.backend_cell[0]
+        if not arg:
+            _print_model_status(backend_name, live)
+            return None
+        try:
+            models = live.list_models()
+        except Exception as e:
+            display.print_error(f"Could not list models: {e}")
+            return None
+        matches = [m for m in models if arg.lower() in m.lower()]
+        if not matches:
+            display.print_error(f"No models matching {arg!r}.")
+        elif len(matches) > 1:
+            display.print_dim(f"{len(matches)} matches for {arg!r}:")
+            for m in matches:
+                print(f"  {m}")
+        else:
+            chosen = matches[0]
+            if backend_name == "textgen":
+                if not display.ask_yes_no(
+                    f"Load {chosen}? This unloads the current model on the server. [y/N] "
+                ):
+                    display.print_dim("Cancelled.")
+                    return None
+                try:
+                    live.load_model(chosen)
+                except Exception as e:
+                    display.print_error(f"Load failed: {e}")
+                    return None
+                ctx.cfg._data["model"] = chosen
+            else:
+                from .backends import make_backend
+                ctx.cfg._data["openrouter_model"] = chosen
+                ctx.backend_cell[0] = make_backend(ctx.cfg)
+            if ctx.cfg._active_profile is not None:
+                ctx.cfg._profile_modified = True
+            display.print_dim(f"Model set to: {chosen}")
 
     else:
         display.print_error(f"Unknown command: {cmd}  (try /help)")

@@ -143,7 +143,11 @@ def main() -> None:
     if args.api_url:
         overrides["api_url"] = args.api_url
     if args.model:
-        overrides["openrouter_model"] = args.model
+        effective_backend = args.backend or cfg.get("backend")
+        if effective_backend == "openrouter":
+            overrides["openrouter_model"] = args.model
+        else:
+            overrides["model"] = args.model
     if args.system:
         overrides["system_prompt"] = args.system
     if args.max_tokens:

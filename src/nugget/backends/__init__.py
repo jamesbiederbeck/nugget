@@ -29,6 +29,11 @@ class Backend(abc.ABC):
     completion_tokens, total_tokens), or left as None.
     """
 
+    #: Known backend/provider names, keyed to the "backend" config value.
+    #: Single source of truth for make_backend()'s dispatch and for anything
+    #: (e.g. the /backend command) that needs to enumerate providers.
+    PROVIDERS: list[str] = ["textgen", "openrouter"]
+
     last_usage: dict | None = None
 
     @abc.abstractmethod
@@ -51,7 +56,7 @@ def make_backend(config) -> Backend:
     if name == "openrouter":
         from .openrouter import OpenRouterBackend
         return OpenRouterBackend(config)
-    raise ValueError(f"unknown backend: {name!r}")
+    raise ValueError(f"unknown backend: {name!r}  (choices: {', '.join(Backend.PROVIDERS)})")
 
 
 def render_request(

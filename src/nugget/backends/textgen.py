@@ -268,6 +268,34 @@ class TextgenBackend(Backend):
         self._session = requests.Session()
         self._session.headers["Content-Type"] = "application/json"
 
+    def list_models(self) -> list[str]:
+        """All gguf models on disk, per text-generation-webui's internal API — not just the loaded one."""
+        url = f"{self.cfg.api_url}/v1/internal/model/list"
+        try:
+            resp = self._session.get(url, timeout=10)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            raise BackendError(str(e)) from e
+        return sorted(resp.json().get("model_names", []))
+
+    def current_model(self) -> str:
+        url = f"{self.cfg.api_url}/v1/internal/model/info"
+        try:
+            resp = self._session.get(url, timeout=10)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            raise BackendError(str(e)) from e
+        return resp.json().get("model_name", "")
+
+    def load_model(self, name: str) -> None:
+        """Hot-swap the loaded gguf on the server. Can take a while and uses GPU memory."""
+        url = f"{self.cfg.api_url}/v1/internal/model/load"
+        try:
+            resp = self._session.post(url, json={"model_name": name}, timeout=300)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            raise BackendError(str(e)) from e
+
     def _post(self, prompt: str, stop: list[str]) -> requests.Response:
         url = f"{self.cfg.api_url}/v1/completions"
         payload = {

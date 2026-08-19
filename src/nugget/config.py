@@ -95,6 +95,7 @@ class Config:
             self._data.update(raw)
 
         self._active_profile: str | None = profile
+        self._profile_modified: bool = False
         if profile is not None:
             if profile not in self._profiles:
                 available = sorted(self._profiles.keys())
@@ -126,6 +127,7 @@ class Config:
         child._raw_file_data = self._raw_file_data
         child._profiles = self._profiles
         child._active_profile = profile
+        child._profile_modified = False
         child._data = dict(DEFAULTS)
         child._data.update(self._raw_file_data)
         if profile is not None:
@@ -158,6 +160,7 @@ class Config:
         self._data.clear()
         self._data.update(candidate)
         self._active_profile = name
+        self._profile_modified = False
 
     def __getattr__(self, key: str) -> Any:
         try:

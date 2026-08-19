@@ -3,8 +3,11 @@ OpenRouter backend — OpenAI-compatible /v1/chat/completions with native tool c
 
 Config keys:
     backend: "openrouter"
-    openrouter_api_key: <string>  (or env OPENROUTER_API_KEY)
-    openrouter_model:   <string>  (default: "openai/gpt-4o-mini")
+    openrouter_api_key:  <string>  (or env OPENROUTER_API_KEY)
+    openrouter_model:    <string>  (default: "openai/gpt-4o-mini")
+    openrouter_base_url: <string>  (default: "https://openrouter.ai/api";
+                                     does NOT fall back to the generic
+                                     "api_url" key, which is textgen-only)
 
 OpenRouter speaks the OpenAI chat-completions protocol. Tool calling uses the
 native `tools` + `tool_calls` fields. Streaming merges partial-JSON deltas
@@ -38,12 +41,10 @@ class OpenRouterBackend(Backend):
     def __init__(self, config):
         self.cfg = config
         api_key = config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY", "")
-        raw_url = (
-            config.get("api_url")
-            or config.get("openrouter_base_url")
-            or "https://openrouter.ai/api"
-        ).rstrip("/")
+        raw_url = (config.get("openrouter_base_url") or "https://openrouter.ai/api").rstrip("/")
+        self._base_url = raw_url
         self._url = f"{raw_url}/v1/chat/completions"
+        self._models_cache: list[str] | None = None
         is_local = raw_url.startswith("http://localhost") or raw_url.startswith("http://127.")
         if not api_key and not is_local:
             raise ValueError(
@@ -61,6 +62,20 @@ class OpenRouterBackend(Backend):
         self._model = config.get("openrouter_model", _DEFAULT_MODEL)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def current_model(self) -> str:
+        return self._model
+
+    def list_models(self) -> list[str]:
+        """Fetch + cache the full OpenRouter model catalog (hundreds of entries)."""
+        if self._models_cache is None:
+            try:
+                resp = self._session.get(f"{self._base_url}/v1/models", timeout=15)
+                resp.raise_for_status()
+            except requests.RequestException as e:
+                raise BackendError(str(e)) from e
+            self._models_cache = sorted(m["id"] for m in resp.json().get("data", []))
+        return self._models_cache
 
     def _build_messages(self, messages: list[dict], system_prompt: str) -> list[dict]:
         return _openai_chat.build_messages(messages, system_prompt)
