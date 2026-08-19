@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0]
+
+### Added
+- **`/backend [NAME]`, `/backends` commands:** show backend status or switch between `textgen`/`openrouter` at runtime.
+- **`/model [TEXT]` command:** show the current model + list, or switch to a TEXT-filtered match. For the textgen backend this hot-swaps the loaded gguf server-side (confirms first).
+- `openrouter_base_url` config key: base URL for the openrouter backend, independent of `api_url`.
+
+### Changed
+- **Breaking:** `OpenRouterBackend` no longer falls back to `api_url` for its base URL — it now resolves from `openrouter_base_url` only, decoupling it from the textgen-only `api_url` key.
+
+### Docs
+- Simplified the memory-pinning guidance in the system prompt template.
+
 ## [0.8.1]
 
 ### Fixed
